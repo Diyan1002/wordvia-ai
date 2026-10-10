@@ -9,7 +9,6 @@ type UpgradePageProps = {
 export default async function UpgradePage({
   searchParams,
 }: UpgradePageProps) {
-
   const params = await searchParams;
 
   const plan =
@@ -17,7 +16,5 @@ export default async function UpgradePage({
       ? "business"
       : "pro";
 
-  return (
-    <UpgradeClient plan={plan} />
-  );
+  return <UpgradeClient plan={plan} />;
 }
