@@ -1,8 +1,8 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useAuth } from "@clerk/nextjs";
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 
 import {
   Check,
@@ -19,24 +19,20 @@ import {
   type Paddle,
 } from "@paddle/paddle-js";
 
-import { useSearchParams } from "next/navigation";
-
 
 const PRO_PRICE_ID =
-  "pri_01m4k5vb9c63968g14fx474ht9";
+  "pri_01m4k1xrt78hwyvc54geb9z1b7";
 
 const BUSINESS_PRICE_ID =
-  "pri_01m4k5xhq3t3aad5pegak3d2ry";
+  "pri_01m4k2288hcerbj9wnfq3hts9b";
 
 
 const plans = {
-
   pro: {
     name: "Pro",
     price: "$19",
     period: "per month",
     words: "50,000 words/month",
-
     priceId: PRO_PRICE_ID,
 
     features: [
@@ -54,7 +50,6 @@ const plans = {
     price: "$49",
     period: "per month",
     words: "Unlimited words",
-
     priceId: BUSINESS_PRICE_ID,
 
     features: [
@@ -67,20 +62,24 @@ const plans = {
       "Business usage",
     ],
   },
-
 };
 
 
 export default function UpgradePage() {
 
+  return (
+    <UpgradeContent />
+  );
+
+}
+
+
+function UpgradeContent() {
+
   const searchParams = useSearchParams();
 
-  const { userId } = useAuth();
-
   const planParam =
-    searchParams
-      .get("plan")
-      ?.toLowerCase() || "pro";
+    searchParams.get("plan")?.toLowerCase() || "pro";
 
 
   const selectedPlan =
@@ -101,11 +100,6 @@ export default function UpgradePage() {
     useState("");
 
 
-
-  /*
-   * INITIALIZE PADDLE
-   */
-
   useEffect(() => {
 
     async function initialize() {
@@ -120,7 +114,7 @@ export default function UpgradePage() {
         if (!token) {
 
           setError(
-            "Paddle client token is missing. Check your .env.local file."
+            "Paddle client token is missing."
           );
 
           setLoading(false);
@@ -166,11 +160,9 @@ export default function UpgradePage() {
           err
         );
 
-
         setError(
-          "Unable to connect to Paddle. Please try again."
+          "Unable to connect to Paddle."
         );
-
 
         setLoading(false);
 
@@ -183,11 +175,6 @@ export default function UpgradePage() {
 
   }, []);
 
-
-
-  /*
-   * OPEN CHECKOUT
-   */
 
   function openCheckout() {
 
@@ -209,34 +196,34 @@ export default function UpgradePage() {
 
       paddle.Checkout.open({
 
-  items: [
+        items: [
 
-    {
-      priceId: selectedPlan.priceId,
-      quantity: 1,
-    },
+          {
+            priceId:
+              selectedPlan.priceId,
 
-  ],
+            quantity: 1,
+          },
 
-  customData: {
+        ],
 
-    clerkUserId: userId,
+        customData: {
 
-    plan: planParam,
+          plan: planParam,
 
-  },
+        },
 
-  settings: {
+        settings: {
 
-    displayMode: "overlay",
+          displayMode: "overlay",
 
-    theme: "light",
+          theme: "light",
 
-    locale: "en",
+          locale: "en",
 
-  },
+        },
 
-});
+      });
 
     } catch (err) {
 
@@ -245,9 +232,8 @@ export default function UpgradePage() {
         err
       );
 
-
       setError(
-        "Unable to open checkout. Please try again."
+        "Unable to open checkout."
       );
 
     }
@@ -255,26 +241,14 @@ export default function UpgradePage() {
   }
 
 
-
   return (
 
-    <div
-      className="
-        min-h-screen
-        bg-[#fafafa]
-      "
-    >
+    <div className="min-h-screen bg-[#fafafa]">
 
 
       {/* HEADER */}
 
-      <header
-        className="
-          border-b
-          border-gray-200
-          bg-white
-        "
-      >
+      <header className="border-b border-gray-200 bg-white">
 
         <div
           className="
@@ -347,9 +321,6 @@ export default function UpgradePage() {
         "
       >
 
-
-        {/* TITLE */}
-
         <div className="text-center">
 
           <div
@@ -414,8 +385,6 @@ export default function UpgradePage() {
 
 
 
-        {/* ERROR */}
-
         {error && (
 
           <div
@@ -443,8 +412,6 @@ export default function UpgradePage() {
 
 
 
-        {/* CONTENT */}
-
         <div
           className="
             mx-auto
@@ -457,7 +424,7 @@ export default function UpgradePage() {
         >
 
 
-          {/* PLAN CARD */}
+          {/* PLAN */}
 
           <div
             className="
@@ -477,7 +444,9 @@ export default function UpgradePage() {
                 text-purple-600
               "
             >
+
               Selected Plan
+
             </p>
 
 
@@ -543,73 +512,54 @@ export default function UpgradePage() {
             </div>
 
 
-            <div className="mt-8">
+            <ul className="mt-8 space-y-3">
 
-              <p
-                className="
-                  text-xs
-                  font-semibold
-                  uppercase
-                  tracking-wider
-                  text-gray-400
-                "
-              >
+              {selectedPlan.features.map(
+                (feature) => (
 
-                Included
+                  <li
+                    key={feature}
+                    className="
+                      flex
+                      items-center
+                      gap-3
+                      text-sm
+                      text-gray-600
+                    "
+                  >
 
-              </p>
-
-
-              <ul className="mt-4 space-y-3">
-
-                {selectedPlan.features.map(
-                  (feature) => (
-
-                    <li
-                      key={feature}
+                    <span
                       className="
                         flex
+                        h-5
+                        w-5
+                        shrink-0
                         items-center
-                        gap-3
-                        text-sm
-                        text-gray-600
+                        justify-center
+                        rounded-full
+                        bg-purple-50
+                        text-purple-600
                       "
                     >
 
-                      <span
-                        className="
-                          flex
-                          h-5
-                          w-5
-                          shrink-0
-                          items-center
-                          justify-center
-                          rounded-full
-                          bg-purple-50
-                          text-purple-600
-                        "
-                      >
+                      <Check size={13} />
 
-                        <Check size={13} />
+                    </span>
 
-                      </span>
+                    {feature}
 
-                      {feature}
+                  </li>
 
-                    </li>
+                )
+              )}
 
-                  )
-                )}
-
-              </ul>
-
-            </div>
+            </ul>
 
           </div>
 
 
 
-          {/* CHECKOUT CARD */}
+          {/* CHECKOUT */}
 
           <div
             className="
@@ -622,13 +572,7 @@ export default function UpgradePage() {
             "
           >
 
-            <div
-              className="
-                flex
-                items-center
-                gap-3
-              "
-            >
+            <div className="flex items-center gap-3">
 
               <div
                 className="
@@ -650,24 +594,14 @@ export default function UpgradePage() {
 
               <div>
 
-                <h2
-                  className="
-                    font-bold
-                    text-gray-900
-                  "
-                >
+                <h2 className="font-bold text-gray-900">
 
                   Secure Checkout
 
                 </h2>
 
 
-                <p
-                  className="
-                    text-sm
-                    text-gray-500
-                  "
-                >
+                <p className="text-sm text-gray-500">
 
                   Powered by Paddle
 
@@ -678,8 +612,6 @@ export default function UpgradePage() {
             </div>
 
 
-
-            {/* CHECKOUT INFO */}
 
             <div
               className="
@@ -755,14 +687,10 @@ export default function UpgradePage() {
 
 
 
-            {/* BUTTON */}
-
             <button
               type="button"
               onClick={openCheckout}
-              disabled={
-                loading || !paddle
-              }
+              disabled={loading || !paddle}
               className="
                 mt-7
                 flex
@@ -833,8 +761,6 @@ export default function UpgradePage() {
 
 
 
-        {/* BACK */}
-
         <div className="mt-8 text-center">
 
           <Link
@@ -856,8 +782,6 @@ export default function UpgradePage() {
       </main>
 
 
-
-      {/* FOOTER */}
 
       <footer
         className="
