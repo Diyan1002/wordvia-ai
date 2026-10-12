@@ -22,11 +22,10 @@ import {
 
 
 const PRO_PRICE_ID =
-  "pri_01m4k1xrt78hwyvc54geb9z1b7";
+  "pri_01m4k5vb9c63968g14fx474ht9";
 
 const BUSINESS_PRICE_ID =
-  "pri_01m4k2288hcerbj9wnfq3hts9b";
-
+  "pri_01m4k5xhq3t3aad5pegak3d2ry";
 
 const plans = {
   pro: {
