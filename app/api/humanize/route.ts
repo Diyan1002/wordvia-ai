@@ -1,12 +1,18 @@
 import { NextResponse } from "next/server";
-import { auth } from "@clerk/nextjs/server";
+import { auth, clerkClient } from "@clerk/nextjs/server";
 import { groq } from "@/lib/groq";
+
+const PLAN_LIMITS: Record<string, number | null> = {
+  free: 1000,
+  pro: 50000,
+  business: null,
+};
 
 export async function POST(req: Request) {
   try {
-    // -----------------------------
+    // --------------------------------
     // 1. Check logged-in user
-    // -----------------------------
+    // --------------------------------
 
     const { userId } = await auth();
 
@@ -21,9 +27,54 @@ export async function POST(req: Request) {
       );
     }
 
-    // -----------------------------
-    // 2. Read request body
-    // -----------------------------
+    // --------------------------------
+    // 2. Get Clerk user + plan
+    // --------------------------------
+
+    const client = await clerkClient();
+
+    const user = await client.users.getUser(userId);
+
+    const plan =
+      (
+        user.publicMetadata?.plan as string | undefined
+      )?.toLowerCase() || "free";
+
+    const monthlyLimit =
+      PLAN_LIMITS[plan] ?? PLAN_LIMITS.free;
+
+    // --------------------------------
+    // 3. Get current month
+    // --------------------------------
+
+    const currentMonth = new Date()
+      .toISOString()
+      .slice(0, 7);
+
+    const privateMetadata =
+      user.privateMetadata || {};
+
+    const storedMonth =
+      typeof privateMetadata.wordUsageMonth === "string"
+        ? privateMetadata.wordUsageMonth
+        : "";
+
+    let wordsUsed =
+      typeof privateMetadata.wordsUsed === "number"
+        ? privateMetadata.wordsUsed
+        : 0;
+
+    // --------------------------------
+    // 4. Reset usage for new month
+    // --------------------------------
+
+    if (storedMonth !== currentMonth) {
+      wordsUsed = 0;
+    }
+
+    // --------------------------------
+    // 5. Read request body
+    // --------------------------------
 
     const body = await req.json();
 
@@ -34,11 +85,15 @@ export async function POST(req: Request) {
       language = "English",
     } = body;
 
-    // -----------------------------
-    // 3. Validate text
-    // -----------------------------
+    // --------------------------------
+    // 6. Validate text
+    // --------------------------------
 
-    if (!text || typeof text !== "string" || !text.trim()) {
+    if (
+      !text ||
+      typeof text !== "string" ||
+      !text.trim()
+    ) {
       return NextResponse.json(
         {
           error: "Text is required.",
@@ -49,16 +104,22 @@ export async function POST(req: Request) {
       );
     }
 
-    // -----------------------------
-    // 4. Word limit protection
-    // -----------------------------
+    // --------------------------------
+    // 7. Count input words
+    // --------------------------------
 
-    const wordCount = text.trim().split(/\s+/).length;
+    const wordCount =
+      text.trim().split(/\s+/).length;
+
+    // --------------------------------
+    // 8. Per-request limit
+    // --------------------------------
 
     if (wordCount > 5000) {
       return NextResponse.json(
         {
-          error: "Maximum 5000 words are allowed per request.",
+          error:
+            "Maximum 5000 words are allowed per request.",
         },
         {
           status: 400,
@@ -66,9 +127,37 @@ export async function POST(req: Request) {
       );
     }
 
-    // -----------------------------
-    // 5. Create humanization prompt
-    // -----------------------------
+    // --------------------------------
+    // 9. Check monthly plan limit
+    // --------------------------------
+
+    if (monthlyLimit !== null) {
+      const remainingWords =
+        monthlyLimit - wordsUsed;
+
+      if (wordCount > remainingWords) {
+        return NextResponse.json(
+          {
+            error:
+              "You have reached your monthly word limit.",
+            plan,
+            monthlyLimit,
+            wordsUsed,
+            remainingWords: Math.max(
+              0,
+              remainingWords
+            ),
+          },
+          {
+            status: 403,
+          }
+        );
+      }
+    }
+
+    // --------------------------------
+    // 10. Create humanization prompt
+    // --------------------------------
 
     const systemPrompt = `
 You are Wordvia.ai, a professional AI writing humanizer.
@@ -104,43 +193,45 @@ Language:
 ${language}
 `;
 
-    // -----------------------------
-    // 6. Send request to Groq
-    // -----------------------------
+    // --------------------------------
+    // 11. Send request to Groq
+    // --------------------------------
 
-    const completion = await groq.chat.completions.create({
-      model: "openai/gpt-oss-120b",
+    const completion =
+      await groq.chat.completions.create({
+        model: "openai/gpt-oss-120b",
 
-      messages: [
-        {
-          role: "system",
-          content: systemPrompt,
-        },
+        messages: [
+          {
+            role: "system",
+            content: systemPrompt,
+          },
+          {
+            role: "user",
+            content: text,
+          },
+        ],
 
-        {
-          role: "user",
-          content: text,
-        },
-      ],
+        temperature: 0.8,
+      });
 
-      temperature: 0.8,
-    });
-
-    // -----------------------------
-    // 7. Get AI response
-    // -----------------------------
+    // --------------------------------
+    // 12. Get AI response
+    // --------------------------------
 
     const output =
-      completion.choices?.[0]?.message?.content?.trim() || "";
+      completion.choices?.[0]?.message?.content?.trim() ||
+      "";
 
-    // -----------------------------
-    // 8. Check empty response
-    // -----------------------------
+    // --------------------------------
+    // 13. Check empty response
+    // --------------------------------
 
     if (!output) {
       return NextResponse.json(
         {
-          error: "No humanized text was generated.",
+          error:
+            "No humanized text was generated.",
         },
         {
           status: 500,
@@ -148,18 +239,64 @@ ${language}
       );
     }
 
-    // -----------------------------
-    // 9. Return result
-    // -----------------------------
+    // --------------------------------
+    // 14. Update usage
+    // --------------------------------
+
+    const newWordsUsed =
+      wordsUsed + wordCount;
+
+    await client.users.updateUserMetadata(
+      userId,
+      {
+        privateMetadata: {
+          ...privateMetadata,
+
+          wordsUsed: newWordsUsed,
+          wordUsageMonth: currentMonth,
+        },
+      }
+    );
+
+    // --------------------------------
+    // 15. Calculate remaining words
+    // --------------------------------
+
+    const remainingWords =
+      monthlyLimit === null
+        ? null
+        : Math.max(
+            0,
+            monthlyLimit - newWordsUsed
+          );
+
+    // --------------------------------
+    // 16. Return result
+    // --------------------------------
 
     return NextResponse.json({
       success: true,
+
       result: output,
+
       originalWordCount: wordCount,
-      resultWordCount: output.split(/\s+/).length,
+
+      resultWordCount:
+        output.split(/\s+/).length,
+
+      plan,
+
+      monthlyLimit,
+
+      wordsUsed: newWordsUsed,
+
+      remainingWords,
     });
   } catch (error: any) {
-    console.error("WORDVIA HUMANIZER ERROR:", error);
+    console.error(
+      "WORDVIA HUMANIZER ERROR:",
+      error
+    );
 
     return NextResponse.json(
       {
