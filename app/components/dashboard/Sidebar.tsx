@@ -11,6 +11,7 @@ import {
   HelpCircle,
   X,
 } from "lucide-react";
+import { useUser } from "@clerk/nextjs";
 
 type SidebarProps = {
   mobileOpen?: boolean;
@@ -22,6 +23,7 @@ export default function Sidebar({
   onClose,
 }: SidebarProps) {
   const pathname = usePathname();
+  const { user, isLoaded } = useUser();
 
   const menu = [
     {
@@ -59,6 +61,39 @@ export default function Sidebar({
     },
   ];
 
+  // --------------------------------
+  // Get current plan
+  // --------------------------------
+
+  const plan =
+    (
+      user?.publicMetadata?.plan as string | undefined
+    )?.toLowerCase() || "free";
+
+  const planInfo = {
+    free: {
+      name: "Free Plan",
+      badge: "Free",
+      limit: "1,000",
+    },
+
+    pro: {
+      name: "Pro Plan",
+      badge: "Pro",
+      limit: "50,000",
+    },
+
+    business: {
+      name: "Business Plan",
+      badge: "Business",
+      limit: "Unlimited",
+    },
+  };
+
+  const currentPlan =
+    planInfo[plan as keyof typeof planInfo] ||
+    planInfo.free;
+
   return (
     <>
       {/* Mobile overlay */}
@@ -93,7 +128,7 @@ export default function Sidebar({
         `}
       >
         {/* Logo */}
-        <div className="flex h-20 items-center justify-between border-b border-gray-100 px-6 mt-2">
+        <div className="mt-2 flex h-20 items-center justify-between border-b border-gray-100 px-6">
           <Link
             href="/"
             onClick={onClose}
@@ -105,7 +140,9 @@ export default function Sidebar({
 
             <span className="text-xl font-bold tracking-tight">
               Wordvia
-              <span className="text-purple-600">.ai</span>
+              <span className="text-purple-600">
+                .ai
+              </span>
             </span>
           </Link>
 
@@ -184,29 +221,55 @@ export default function Sidebar({
           </nav>
         </div>
 
-        {/* Free plan card */}
+        {/* Dynamic plan card */}
         <div className="border-t border-gray-100 p-4">
           <div className="rounded-2xl bg-gradient-to-br from-purple-50 to-indigo-50 p-5">
             <div className="mb-3 flex items-center justify-between">
               <span className="text-sm font-semibold text-gray-900">
-                Free Plan
+                {isLoaded
+                  ? currentPlan.name
+                  : "Loading..."}
               </span>
 
               <span className="rounded-full bg-white px-2.5 py-1 text-xs font-medium text-purple-600 shadow-sm">
-                Free
+                {isLoaded
+                  ? currentPlan.badge
+                  : "..."}
               </span>
             </div>
 
             <p className="text-xs leading-5 text-gray-500">
-              You have 1,000 words available this month.
+              {isLoaded
+                ? currentPlan.limit ===
+                  "Unlimited"
+                  ? "You have unlimited words available."
+                  : `You have ${currentPlan.limit} words available this month.`
+                : "Checking your plan..."}
             </p>
 
-            <Link
-              href="/pricing"
-              className="mt-4 block rounded-xl bg-purple-600 py-2.5 text-center text-sm font-semibold text-white transition hover:bg-purple-700"
-            >
-              Upgrade Plan
-            </Link>
+            {plan === "free" && (
+              <Link
+                href="/pricing"
+                className="mt-4 block rounded-xl bg-purple-600 py-2.5 text-center text-sm font-semibold text-white transition hover:bg-purple-700"
+              >
+                Upgrade Plan
+              </Link>
+            )}
+
+            {plan === "pro" && (
+              <Link
+                href="/pricing"
+                className="mt-4 block rounded-xl border border-purple-200 bg-white py-2.5 text-center text-sm font-semibold text-purple-700 transition hover:bg-purple-50"
+              >
+                Manage Plan
+              </Link>
+            )}
+
+            {plan === "business" && (
+              <div className="mt-4 rounded-xl bg-white/70 py-2.5 text-center text-sm font-semibold text-purple-700">
+                Unlimited Access
+              </div>
+            )}
           </div>
         </div>
       </aside>
