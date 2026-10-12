@@ -17,84 +17,181 @@ import {
 
 import Navbar from "@/components/Navbar";
 
+const MAX_REQUEST_WORDS = 5000;
 
-const FREE_WORD_LIMIT = 1000;
-
+type Plan = "free" | "pro" | "business";
 
 export default function HumanizerClient() {
+  // --------------------------------
+  // TEXT / RESULT
+  // --------------------------------
 
   const [text, setText] = useState("");
   const [result, setResult] = useState("");
 
+  // --------------------------------
+  // UI STATES
+  // --------------------------------
+
   const [loading, setLoading] = useState(false);
   const [copied, setCopied] = useState(false);
+
+  // --------------------------------
+  // OPTIONS
+  // --------------------------------
 
   const [tone, setTone] = useState("Professional");
   const [level, setLevel] = useState("Medium");
   const [language, setLanguage] = useState("English");
 
+  // --------------------------------
+  // PLAN / USAGE
+  // --------------------------------
+
+  const [plan, setPlan] = useState<Plan>("free");
+
+  const [monthlyLimit, setMonthlyLimit] =
+    useState<number | null>(1000);
+
   const [wordsUsed, setWordsUsed] = useState(0);
 
+  const [remainingWords, setRemainingWords] =
+    useState<number | null>(1000);
 
-  /* LOAD USAGE */
+  const [usageLoading, setUsageLoading] =
+    useState(true);
+
+  // --------------------------------
+  // LOAD REAL USAGE FROM SERVER
+  // --------------------------------
+
+  async function loadUsage() {
+    try {
+      setUsageLoading(true);
+
+      const response = await fetch(
+        "/api/usage",
+        {
+          method: "GET",
+          cache: "no-store",
+        }
+      );
+
+      const data = await response.json();
+
+      console.log("USAGE RESPONSE:", data);
+
+      if (!response.ok) {
+        console.error(
+          "Usage API error:",
+          data
+        );
+
+        return;
+      }
+
+      setPlan(
+        data.plan === "business"
+          ? "business"
+          : data.plan === "pro"
+          ? "pro"
+          : "free"
+      );
+
+      setMonthlyLimit(
+        data.monthlyLimit ?? null
+      );
+
+      setWordsUsed(
+        typeof data.wordsUsed === "number"
+          ? data.wordsUsed
+          : 0
+      );
+
+      setRemainingWords(
+        data.remainingWords ?? null
+      );
+    } catch (error) {
+      console.error(
+        "Failed to load usage:",
+        error
+      );
+    } finally {
+      setUsageLoading(false);
+    }
+  }
 
   useEffect(() => {
-
-    const savedUsage = Number(
-      localStorage.getItem("wordvia_words_used") || "0"
-    );
-
-    setWordsUsed(savedUsage);
-
+    loadUsage();
   }, []);
 
-
-  /* INPUT WORD COUNT */
+  // --------------------------------
+  // INPUT WORD COUNT
+  // --------------------------------
 
   const inputWordCount = text.trim()
     ? text.trim().split(/\s+/).length
     : 0;
 
+  // --------------------------------
+  // PLAN DISPLAY
+  // --------------------------------
 
-  const remainingWords = Math.max(
-    0,
-    FREE_WORD_LIMIT - wordsUsed
-  );
+  const planName =
+    plan === "business"
+      ? "Business"
+      : plan === "pro"
+      ? "Pro"
+      : "Free";
 
+  // --------------------------------
+  // CHECK WHETHER USER EXCEEDED LIMIT
+  // --------------------------------
 
-  /* HUMANIZE */
+  const exceedsMonthlyLimit =
+    remainingWords !== null &&
+    inputWordCount > remainingWords;
+
+  const exceedsRequestLimit =
+    inputWordCount > MAX_REQUEST_WORDS;
+
+  // --------------------------------
+  // HUMANIZE
+  // --------------------------------
 
   async function humanize() {
-
     setResult("");
 
-
     if (!text.trim()) {
-
-      setResult("Please enter some text first.");
-
-      return;
-
-    }
-
-
-    /* FREE PLAN LIMIT */
-
-    if (inputWordCount > remainingWords) {
-
       setResult(
-        `You have ${remainingWords.toLocaleString()} words remaining on your Free plan. Your text contains ${inputWordCount.toLocaleString()} words.`
+        "Please enter some text first."
       );
 
       return;
-
     }
 
+    // Per-request limit
+    if (inputWordCount > MAX_REQUEST_WORDS) {
+      setResult(
+        `Maximum ${MAX_REQUEST_WORDS.toLocaleString()} words are allowed per request.`
+      );
+
+      return;
+    }
+
+    // Monthly plan limit
+    if (exceedsMonthlyLimit) {
+      setResult(
+        `You have ${
+          remainingWords?.toLocaleString() || "0"
+        } words remaining on your ${planName} plan. Your text contains ${inputWordCount.toLocaleString()} words.`
+      );
+
+      return;
+    }
 
     try {
-
       setLoading(true);
-
 
       const response = await fetch(
         "/api/humanize",
@@ -114,198 +211,210 @@ export default function HumanizerClient() {
         }
       );
 
-
       const data = await response.json();
 
-
       console.log(
-        "API RESPONSE:",
+        "HUMANIZE API RESPONSE:",
         data
       );
 
+      // --------------------------------
+      // API ERROR
+      // --------------------------------
 
-      if (!response.ok || data.error) {
-
+      if (!response.ok) {
         setResult(
           data.error ||
-          "Unable to generate result."
+            "Unable to generate result."
         );
 
-        return;
+        // Refresh actual server usage
+        await loadUsage();
 
+        return;
       }
 
+      // --------------------------------
+      // EMPTY RESULT
+      // --------------------------------
 
       if (!data.result) {
-
         setResult(
           "No result was generated."
         );
 
         return;
-
       }
 
-
-      /* SHOW RESULT */
+      // --------------------------------
+      // SHOW RESULT
+      // --------------------------------
 
       setResult(data.result);
 
+      // --------------------------------
+      // UPDATE REAL USAGE
+      // --------------------------------
 
-      /* UPDATE WORD USAGE */
+      if (
+        typeof data.wordsUsed ===
+        "number"
+      ) {
+        setWordsUsed(
+          data.wordsUsed
+        );
+      }
 
-      const newUsage =
-        wordsUsed + inputWordCount;
-
-
-      setWordsUsed(newUsage);
-
-
-      localStorage.setItem(
-        "wordvia_words_used",
-        String(newUsage)
+      setRemainingWords(
+        data.remainingWords ?? null
       );
 
+      if (data.plan) {
+        setPlan(
+          data.plan === "business"
+            ? "business"
+            : data.plan === "pro"
+            ? "pro"
+            : "free"
+        );
+      }
 
-      /* SAVE DOCUMENT */
-
-      const oldHistory = JSON.parse(
-        localStorage.getItem(
-          "wordvia_history"
-        ) || "[]"
+      setMonthlyLimit(
+        data.monthlyLimit ?? null
       );
 
+      // --------------------------------
+      // SAVE DOCUMENT HISTORY
+      // --------------------------------
 
-      const newDocument = {
+      try {
+        const oldHistory = JSON.parse(
+          localStorage.getItem(
+            "wordvia_history"
+          ) || "[]"
+        );
 
-        id: Date.now().toString(),
+        const newDocument = {
+          id: Date.now().toString(),
 
-        title:
-          text
-            .trim()
-            .split(/\s+/)
-            .slice(0, 6)
-            .join(" ") +
-          "...",
+          title:
+            text
+              .trim()
+              .split(/\s+/)
+              .slice(0, 6)
+              .join(" ") + "...",
 
-        originalText: text,
+          originalText: text,
 
-        humanizedText: data.result,
+          humanizedText:
+            data.result,
 
-        tone,
+          tone,
 
-        level,
+          level,
 
-        language,
+          language,
 
-        createdAt:
-          new Date().toISOString(),
+          createdAt:
+            new Date().toISOString(),
+        };
 
-      };
+        const updatedHistory = [
+          newDocument,
+          ...oldHistory,
+        ];
 
+        localStorage.setItem(
+          "wordvia_history",
+          JSON.stringify(
+            updatedHistory
+          )
+        );
 
-      const updatedHistory = [
-        newDocument,
-        ...oldHistory,
-      ];
-
-
-      localStorage.setItem(
-        "wordvia_history",
-        JSON.stringify(
-          updatedHistory
-        )
-      );
-
-
-      /* DOCUMENT COUNT */
-
-      localStorage.setItem(
-        "wordvia_documents",
-        String(
-          updatedHistory.length
-        )
-      );
-
-
+        localStorage.setItem(
+          "wordvia_documents",
+          String(
+            updatedHistory.length
+          )
+        );
+      } catch (historyError) {
+        console.error(
+          "History save error:",
+          historyError
+        );
+      }
     } catch (error) {
-
       console.error(
         "Humanizer error:",
         error
       );
 
-
       setResult(
         "Something went wrong. Please try again."
       );
-
     } finally {
-
       setLoading(false);
-
     }
-
   }
 
-
-  /* COPY */
+  // --------------------------------
+  // COPY RESULT
+  // --------------------------------
 
   async function copyResult() {
-
     if (!result) {
       return;
     }
 
-
     try {
-
       await navigator.clipboard.writeText(
         result
       );
 
-
       setCopied(true);
 
-
       setTimeout(() => {
-
         setCopied(false);
-
       }, 2000);
-
-
     } catch (error) {
-
       console.error(
         "Copy error:",
         error
       );
-
     }
-
   }
 
-
-  /* CLEAR */
+  // --------------------------------
+  // CLEAR
+  // --------------------------------
 
   function clearText() {
-
     setText("");
     setResult("");
-
   }
 
+  // --------------------------------
+  // USAGE PERCENTAGE
+  // --------------------------------
+
+  const usagePercentage =
+    monthlyLimit === null
+      ? 0
+      : Math.min(
+          100,
+          (wordsUsed / monthlyLimit) *
+            100
+        );
+
+  // --------------------------------
+  // RENDER
+  // --------------------------------
 
   return (
-
     <div className="min-h-screen bg-[#fafafa]">
-
       <Navbar />
 
-
       {/* HERO */}
-
       <section
         className="
           px-6
@@ -313,7 +422,6 @@ export default function HumanizerClient() {
           text-center
         "
       >
-
         <motion.div
           initial={{
             opacity: 0,
@@ -334,13 +442,10 @@ export default function HumanizerClient() {
             text-purple-700
           "
         >
-
           <Sparkles size={18} />
 
           AI Writing Assistant
-
         </motion.div>
-
 
         <motion.h1
           initial={{
@@ -361,15 +466,12 @@ export default function HumanizerClient() {
             md:text-7xl
           "
         >
-
           Make AI Text{" "}
 
           <span className="text-purple-600">
             Sound Human
           </span>
-
         </motion.h1>
-
 
         <p
           className="
@@ -380,13 +482,10 @@ export default function HumanizerClient() {
             text-gray-500
           "
         >
-
           Wordvia.ai transforms robotic
           AI-generated content into natural
           human writing.
-
         </p>
-
 
         <div
           className="
@@ -398,36 +497,25 @@ export default function HumanizerClient() {
             text-gray-600
           "
         >
-
           <div className="flex items-center gap-2">
-
             <ShieldCheck
               className="text-purple-600"
             />
 
             Meaning Preserved
-
           </div>
 
-
           <div className="flex items-center gap-2">
-
             <Zap
               className="text-purple-600"
             />
 
             Instant Result
-
           </div>
-
         </div>
-
       </section>
 
-
-
       {/* TOOL */}
-
       <section
         className="
           mx-auto
@@ -435,7 +523,6 @@ export default function HumanizerClient() {
           px-6
         "
       >
-
         <div
           className="
             rounded-3xl
@@ -445,10 +532,7 @@ export default function HumanizerClient() {
             shadow-sm
           "
         >
-
-
           {/* USAGE BAR */}
-
           <div
             className="
               mb-8
@@ -459,99 +543,95 @@ export default function HumanizerClient() {
               p-5
             "
           >
+            {usageLoading ? (
+              <div className="flex items-center gap-3 text-sm text-purple-700">
+                <Loader2
+                  size={17}
+                  className="animate-spin"
+                />
 
-            <div
-              className="
-                flex
-                flex-col
-                justify-between
-                gap-3
-                sm:flex-row
-                sm:items-center
-              "
-            >
-
-              <div>
-
-                <p
+                Loading your plan...
+              </div>
+            ) : (
+              <>
+                <div
                   className="
-                    text-sm
-                    font-semibold
-                    text-purple-900
+                    flex
+                    flex-col
+                    justify-between
+                    gap-3
+                    sm:flex-row
+                    sm:items-center
                   "
                 >
-                  Free Plan Usage
-                </p>
+                  <div>
+                    <p
+                      className="
+                        text-sm
+                        font-semibold
+                        text-purple-900
+                      "
+                    >
+                      {planName} Plan Usage
+                    </p>
 
-                <p
-                  className="
-                    mt-1
-                    text-sm
-                    text-purple-600
-                  "
-                >
-                  {wordsUsed.toLocaleString()}
-                  {" / "}
-                  {FREE_WORD_LIMIT.toLocaleString()}
-                  {" words used"}
-                </p>
+                    <p
+                      className="
+                        mt-1
+                        text-sm
+                        text-purple-600
+                      "
+                    >
+                      {monthlyLimit === null
+                        ? `${wordsUsed.toLocaleString()} words used`
+                        : `${wordsUsed.toLocaleString()} / ${monthlyLimit.toLocaleString()} words used`}
+                    </p>
+                  </div>
 
-              </div>
+                  <div
+                    className="
+                      text-sm
+                      font-semibold
+                      text-purple-700
+                    "
+                  >
+                    {monthlyLimit === null
+                      ? "Unlimited"
+                      : `${(
+                          remainingWords ?? 0
+                        ).toLocaleString()} words left`}
+                  </div>
+                </div>
 
-
-              <div
-                className="
-                  text-sm
-                  font-semibold
-                  text-purple-700
-                "
-              >
-
-                {remainingWords.toLocaleString()}
-                {" words left"}
-
-              </div>
-
-            </div>
-
-
-            {/* PROGRESS */}
-
-            <div
-              className="
-                mt-4
-                h-2
-                overflow-hidden
-                rounded-full
-                bg-purple-100
-              "
-            >
-
-              <div
-                className="
-                  h-full
-                  rounded-full
-                  bg-purple-600
-                  transition-all
-                "
-                style={{
-                  width: `${Math.min(
-                    100,
-                    (wordsUsed /
-                      FREE_WORD_LIMIT) *
-                      100
-                  )}%`,
-                }}
-              />
-
-            </div>
-
+                {/* PROGRESS BAR */}
+                {monthlyLimit !== null && (
+                  <div
+                    className="
+                      mt-4
+                      h-2
+                      overflow-hidden
+                      rounded-full
+                      bg-purple-100
+                    "
+                  >
+                    <div
+                      className="
+                        h-full
+                        rounded-full
+                        bg-purple-600
+                        transition-all
+                      "
+                      style={{
+                        width: `${usagePercentage}%`,
+                      }}
+                    />
+                  </div>
+                )}
+              </>
+            )}
           </div>
 
-
-
           {/* EDITORS */}
-
           <div
             className="
               grid
@@ -559,12 +639,8 @@ export default function HumanizerClient() {
               md:grid-cols-2
             "
           >
-
-
             {/* INPUT */}
-
             <div>
-
               <div
                 className="
                   mb-3
@@ -572,11 +648,9 @@ export default function HumanizerClient() {
                   justify-between
                 "
               >
-
                 <h3 className="font-semibold">
                   Original AI Text
                 </h3>
-
 
                 <span
                   className="
@@ -586,9 +660,7 @@ export default function HumanizerClient() {
                 >
                   {inputWordCount} words
                 </span>
-
               </div>
-
 
               <textarea
                 value={text}
@@ -609,11 +681,12 @@ export default function HumanizerClient() {
                 "
               />
 
-
               <button
                 type="button"
                 onClick={clearText}
-                disabled={!text && !result}
+                disabled={
+                  !text && !result
+                }
                 className="
                   mt-3
                   text-sm
@@ -625,15 +698,10 @@ export default function HumanizerClient() {
               >
                 Clear
               </button>
-
             </div>
 
-
-
             {/* RESULT */}
-
             <div>
-
               <div
                 className="
                   mb-3
@@ -642,11 +710,9 @@ export default function HumanizerClient() {
                   justify-between
                 "
               >
-
                 <h3 className="font-semibold">
                   Humanized Result
                 </h3>
-
 
                 <button
                   type="button"
@@ -660,24 +726,16 @@ export default function HumanizerClient() {
                   "
                   title="Copy result"
                 >
-
                   {copied ? (
-
                     <Check
                       size={18}
                       className="text-green-600"
                     />
-
                   ) : (
-
                     <Copy size={18} />
-
                   )}
-
                 </button>
-
               </div>
-
 
               <div
                 className="
@@ -692,9 +750,7 @@ export default function HumanizerClient() {
                   leading-7
                 "
               >
-
                 {loading ? (
-
                   <div
                     className="
                       flex
@@ -703,40 +759,25 @@ export default function HumanizerClient() {
                       text-purple-600
                     "
                   >
-
                     <Loader2
                       className="animate-spin"
                     />
 
                     Humanizing...
-
                   </div>
-
                 ) : result ? (
-
                   result
-
                 ) : (
-
                   <span className="text-gray-400">
-
                     Your humanized text
                     will appear here...
-
                   </span>
-
                 )}
-
               </div>
-
             </div>
-
           </div>
 
-
-
           {/* OPTIONS */}
-
           <div
             className="
               mt-8
@@ -745,7 +786,6 @@ export default function HumanizerClient() {
               md:grid-cols-3
             "
           >
-
             <select
               value={tone}
               onChange={(e) =>
@@ -760,7 +800,6 @@ export default function HumanizerClient() {
                 focus:ring-purple-500
               "
             >
-
               <option>
                 Professional
               </option>
@@ -772,9 +811,7 @@ export default function HumanizerClient() {
               <option>
                 Creative
               </option>
-
             </select>
-
 
             <select
               value={level}
@@ -790,7 +827,6 @@ export default function HumanizerClient() {
                 focus:ring-purple-500
               "
             >
-
               <option>
                 Light
               </option>
@@ -802,14 +838,14 @@ export default function HumanizerClient() {
               <option>
                 Strong
               </option>
-
             </select>
-
 
             <select
               value={language}
               onChange={(e) =>
-                setLanguage(e.target.value)
+                setLanguage(
+                  e.target.value
+                )
               }
               className="
                 rounded-xl
@@ -820,7 +856,6 @@ export default function HumanizerClient() {
                 focus:ring-purple-500
               "
             >
-
               <option>
                 English
               </option>
@@ -833,19 +868,14 @@ export default function HumanizerClient() {
                 French
               </option>
 
-<option>
+              <option>
                 Urdu
               </option>
             </select>
-
           </div>
 
-
-
-          {/* WARNING */}
-
-          {inputWordCount > remainingWords && (
-
+          {/* REQUEST LIMIT WARNING */}
+          {exceedsRequestLimit && (
             <div
               className="
                 mt-5
@@ -861,41 +891,78 @@ export default function HumanizerClient() {
                 text-red-700
               "
             >
-
               <AlertCircle
                 size={18}
                 className="mt-0.5 shrink-0"
               />
 
               <p>
-
                 Your text has{" "}
                 <strong>
                   {inputWordCount.toLocaleString()}
                 </strong>{" "}
-                words, but you only have{" "}
+                words. Maximum{" "}
                 <strong>
-                  {remainingWords.toLocaleString()}
+                  {MAX_REQUEST_WORDS.toLocaleString()}
                 </strong>{" "}
-                words remaining.
-
+                words are allowed per request.
               </p>
-
             </div>
-
           )}
 
+          {/* MONTHLY LIMIT WARNING */}
+          {!exceedsRequestLimit &&
+            exceedsMonthlyLimit && (
+              <div
+                className="
+                  mt-5
+                  flex
+                  items-start
+                  gap-3
+                  rounded-xl
+                  border
+                  border-red-200
+                  bg-red-50
+                  p-4
+                  text-sm
+                  text-red-700
+                "
+              >
+                <AlertCircle
+                  size={18}
+                  className="mt-0.5 shrink-0"
+                />
 
+                <p>
+                  Your text has{" "}
+                  <strong>
+                    {inputWordCount.toLocaleString()}
+                  </strong>{" "}
+                  words, but you only have{" "}
+                  <strong>
+                    {(
+                      remainingWords ?? 0
+                    ).toLocaleString()}
+                  </strong>{" "}
+                  words remaining on your{" "}
+                  <strong>
+                    {planName}
+                  </strong>{" "}
+                  plan.
+                </p>
+              </div>
+            )}
 
           {/* BUTTON */}
-
           <button
             type="button"
             onClick={humanize}
             disabled={
               loading ||
+              usageLoading ||
               inputWordCount === 0 ||
-              inputWordCount > remainingWords
+              exceedsRequestLimit ||
+              exceedsMonthlyLimit
             }
             className="
               mt-8
@@ -915,40 +982,26 @@ export default function HumanizerClient() {
               disabled:bg-purple-300
             "
           >
-
             {loading ? (
-
               <>
                 <Loader2
                   className="animate-spin"
                 />
 
                 Processing...
-
               </>
-
             ) : (
-
               <>
                 <RefreshCcw />
 
                 Humanize Text
-
               </>
-
             )}
-
           </button>
-
-
         </div>
-
       </section>
 
-
-
       {/* FEATURES */}
-
       <section
         className="
           mx-auto
@@ -957,7 +1010,6 @@ export default function HumanizerClient() {
           py-20
         "
       >
-
         <h2
           className="
             text-center
@@ -968,7 +1020,6 @@ export default function HumanizerClient() {
           Why Wordvia.ai?
         </h2>
 
-
         <div
           className="
             mt-10
@@ -977,13 +1028,11 @@ export default function HumanizerClient() {
             md:grid-cols-3
           "
         >
-
           <Card
             icon={<Sparkles />}
             title="Natural Writing"
             text="Human-style rewriting that feels natural."
           />
-
 
           <Card
             icon={<ShieldCheck />}
@@ -991,22 +1040,20 @@ export default function HumanizerClient() {
             text="Keeps the original message and meaning."
           />
 
-
           <Card
             icon={<Languages />}
             title="Multiple Languages"
             text="Rewrite content in multiple languages."
           />
-
         </div>
-
       </section>
-
     </div>
   );
 }
 
-
+// --------------------------------
+// FEATURE CARD
+// --------------------------------
 
 function Card({
   icon,
@@ -1017,9 +1064,7 @@ function Card({
   title: string;
   text: string;
 }) {
-
   return (
-
     <div
       className="
         rounded-2xl
@@ -1028,11 +1073,9 @@ function Card({
         p-6
       "
     >
-
       <div className="text-purple-600">
         {icon}
       </div>
-
 
       <h3
         className="
@@ -1044,7 +1087,6 @@ function Card({
         {title}
       </h3>
 
-
       <p
         className="
           mt-2
@@ -1055,8 +1097,6 @@ function Card({
       >
         {text}
       </p>
-
     </div>
-
   );
 }
