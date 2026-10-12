@@ -13,24 +13,42 @@ import {
   User,
 } from "lucide-react";
 
-import { UserButton } from "@clerk/nextjs";
+import { UserButton, useUser } from "@clerk/nextjs";
 
 import Sidebar from "@/app/components/dashboard/Sidebar";
 import DashboardCard from "@/app/components/dashboard/DashboardCard";
 import RecentActivity from "@/app/components/dashboard/RecentActivity";
 
-
 export default function DashboardPage() {
-
   const [mobileOpen, setMobileOpen] = useState(false);
 
   const [wordsUsed, setWordsUsed] = useState(0);
-
   const [documents, setDocuments] = useState(0);
 
+  const { user, isLoaded } = useUser();
+
+  // Get plan from Clerk public metadata
+  const plan =
+    (user?.publicMetadata?.plan as string | undefined)?.toLowerCase() ||
+    "free";
+
+  // Plan limits
+  const planLimits: Record<string, number | null> = {
+    free: 1000,
+    pro: 50000,
+    business: null,
+  };
+
+  const currentLimit = planLimits[plan] ?? 1000;
+
+  const planName =
+    plan === "business"
+      ? "Business"
+      : plan === "pro"
+        ? "Pro"
+        : "Free";
 
   useEffect(() => {
-
     const words = Number(
       localStorage.getItem("wordvia_words_used") || "0"
     );
@@ -40,33 +58,25 @@ export default function DashboardPage() {
     );
 
     setWordsUsed(words);
-
     setDocuments(docs);
-
   }, []);
 
+  const remainingWords =
+    currentLimit === null
+      ? "Unlimited"
+      : Math.max(0, currentLimit - wordsUsed).toLocaleString();
 
   return (
-
     <div className="min-h-screen bg-[#fafafa]">
-
-
       {/* SIDEBAR */}
-
       <Sidebar
         mobileOpen={mobileOpen}
         onClose={() => setMobileOpen(false)}
       />
 
-
-
       {/* MAIN */}
-
       <main className="min-h-screen lg:ml-72">
-
-
         {/* TOPBAR */}
-
         <header
           className="
             sticky
@@ -84,13 +94,7 @@ export default function DashboardPage() {
             sm:px-8
           "
         >
-
-
-          {/* LEFT SIDE */}
-
           <div className="flex items-center gap-4">
-
-
             <button
               type="button"
               onClick={() => setMobileOpen(true)}
@@ -104,15 +108,10 @@ export default function DashboardPage() {
                 lg:hidden
               "
             >
-
               <Menu size={21} />
-
             </button>
 
-
-
             <div>
-
               <p className="text-xs text-gray-400">
                 Workspace
               </p>
@@ -120,19 +119,10 @@ export default function DashboardPage() {
               <h1 className="text-lg font-semibold text-gray-900">
                 Dashboard
               </h1>
-
             </div>
-
-
           </div>
 
-
-
-          {/* RIGHT SIDE */}
-
           <div className="flex items-center gap-3">
-
-
             <div
               className="
                 hidden
@@ -147,26 +137,15 @@ export default function DashboardPage() {
                 sm:flex
               "
             >
-
               <User size={16} />
-
               Account
-
             </div>
 
-
-
             <UserButton />
-
           </div>
-
-
         </header>
 
-
-
         {/* CONTENT */}
-
         <div
           className="
             mx-auto
@@ -177,12 +156,8 @@ export default function DashboardPage() {
             lg:px-10
           "
         >
-
-
           {/* WELCOME */}
-
           <section>
-
             <div
               className="
                 flex
@@ -193,11 +168,7 @@ export default function DashboardPage() {
                 md:items-center
               "
             >
-
-
               <div>
-
-
                 <div
                   className="
                     mb-3
@@ -213,14 +184,9 @@ export default function DashboardPage() {
                     text-purple-600
                   "
                 >
-
                   <Sparkles size={14} />
-
                   AI Writing Workspace
-
                 </div>
-
-
 
                 <h2
                   className="
@@ -231,12 +197,8 @@ export default function DashboardPage() {
                     sm:text-4xl
                   "
                 >
-
                   Welcome to Wordvia.ai
-
                 </h2>
-
-
 
                 <p
                   className="
@@ -248,16 +210,10 @@ export default function DashboardPage() {
                     sm:text-base
                   "
                 >
-
                   Transform your AI-generated content
                   into natural, authentic writing.
-
                 </p>
-
-
               </div>
-
-
 
               <Link
                 href="/humanizer"
@@ -279,22 +235,13 @@ export default function DashboardPage() {
                   hover:bg-purple-700
                 "
               >
-
                 <Sparkles size={18} />
-
                 Humanize Text
-
               </Link>
-
-
             </div>
-
           </section>
 
-
-
           {/* STATS */}
-
           <section
             className="
               mt-8
@@ -304,15 +251,12 @@ export default function DashboardPage() {
               xl:grid-cols-3
             "
           >
-
-
             <DashboardCard
               title="Words Used"
               value={wordsUsed.toLocaleString()}
               description="Words used this month"
               icon={Type}
             />
-
 
             <DashboardCard
               title="Documents"
@@ -321,27 +265,20 @@ export default function DashboardPage() {
               icon={FileText}
             />
 
-
             <DashboardCard
               title="Current Plan"
-              value="Free"
-              description={`${Math.max(
-                0,
-                1000 - wordsUsed
-              ).toLocaleString()} words remaining`}
+              value={isLoaded ? planName : "..."}
+              description={
+                isLoaded
+                  ? `${remainingWords} words remaining`
+                  : "Loading plan..."
+              }
               icon={Zap}
             />
-
-
           </section>
 
-
-
           {/* QUICK START */}
-
           <section className="mt-8">
-
-
             <div
               className="
                 relative
@@ -357,10 +294,6 @@ export default function DashboardPage() {
                 sm:p-10
               "
             >
-
-
-              {/* DECORATIVE CIRCLE */}
-
               <div
                 className="
                   absolute
@@ -372,7 +305,6 @@ export default function DashboardPage() {
                   bg-white/10
                 "
               />
-
 
               <div
                 className="
@@ -386,11 +318,7 @@ export default function DashboardPage() {
                 "
               />
 
-
-
               <div className="relative z-10 max-w-2xl">
-
-
                 <div
                   className="
                     mb-4
@@ -403,20 +331,12 @@ export default function DashboardPage() {
                     bg-white/15
                   "
                 >
-
                   <Sparkles size={22} />
-
                 </div>
 
-
-
                 <h2 className="text-2xl font-bold sm:text-3xl">
-
                   Ready to make your writing sound human?
-
                 </h2>
-
-
 
                 <p
                   className="
@@ -428,14 +348,10 @@ export default function DashboardPage() {
                     sm:text-base
                   "
                 >
-
                   Paste your AI-generated content and let
                   Wordvia.ai transform it into natural,
                   readable writing.
-
                 </p>
-
-
 
                 <Link
                   href="/humanizer"
@@ -454,36 +370,19 @@ export default function DashboardPage() {
                     hover:bg-purple-50
                   "
                 >
-
                   Start Humanizing
-
                   <ArrowRight size={17} />
-
                 </Link>
-
-
               </div>
-
-
             </div>
-
-
           </section>
-
-
 
           {/* RECENT ACTIVITY */}
-
           <section className="mt-8">
-
             <RecentActivity />
-
           </section>
 
-
-
           {/* BOTTOM CARDS */}
-
           <section
             className="
               mt-8
@@ -492,10 +391,7 @@ export default function DashboardPage() {
               md:grid-cols-2
             "
           >
-
-
             {/* HUMANIZER */}
-
             <div
               className="
                 rounded-2xl
@@ -505,10 +401,7 @@ export default function DashboardPage() {
                 p-6
               "
             >
-
               <div className="flex items-center gap-3">
-
-
                 <div
                   className="
                     flex
@@ -521,33 +414,19 @@ export default function DashboardPage() {
                     text-purple-600
                   "
                 >
-
                   <Sparkles size={19} />
-
                 </div>
 
-
-
                 <div>
-
                   <h3 className="font-semibold text-gray-900">
-
                     AI Humanizer
-
                   </h3>
 
                   <p className="text-sm text-gray-500">
-
                     Rewrite your content naturally.
-
                   </p>
-
                 </div>
-
-
               </div>
-
-
 
               <Link
                 href="/humanizer"
@@ -562,20 +441,12 @@ export default function DashboardPage() {
                   hover:text-purple-700
                 "
               >
-
                 Open Humanizer
-
                 <ArrowRight size={15} />
-
               </Link>
-
-
             </div>
 
-
-
-            {/* FREE PLAN */}
-
+            {/* CURRENT PLAN */}
             <div
               className="
                 rounded-2xl
@@ -585,10 +456,7 @@ export default function DashboardPage() {
                 p-6
               "
             >
-
               <div className="flex items-center gap-3">
-
-
                 <div
                   className="
                     flex
@@ -601,33 +469,23 @@ export default function DashboardPage() {
                     text-green-600
                   "
                 >
-
                   <Zap size={19} />
-
                 </div>
 
-
-
                 <div>
-
                   <h3 className="font-semibold text-gray-900">
-
-                    Free Plan
-
+                    {isLoaded ? `${planName} Plan` : "Loading..."}
                   </h3>
 
                   <p className="text-sm text-gray-500">
-
-                    1,000 words available every month.
-
+                    {isLoaded
+                      ? currentLimit === null
+                        ? "Unlimited words available."
+                        : `${currentLimit.toLocaleString()} words available every month.`
+                      : "Checking your plan..."}
                   </p>
-
                 </div>
-
-
               </div>
-
-
 
               <Link
                 href="/pricing"
@@ -642,23 +500,13 @@ export default function DashboardPage() {
                   hover:text-purple-700
                 "
               >
-
                 View plans
-
                 <ArrowRight size={15} />
-
               </Link>
-
-
             </div>
-
-
           </section>
 
-
-
           {/* FOOTER */}
-
           <footer
             className="
               py-10
@@ -667,19 +515,10 @@ export default function DashboardPage() {
               text-gray-400
             "
           >
-
             © 2026 Wordvia.ai. All rights reserved.
-
           </footer>
-
-
         </div>
-
-
       </main>
-
-
     </div>
-
   );
 }
