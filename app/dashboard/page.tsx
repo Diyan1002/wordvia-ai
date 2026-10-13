@@ -11,13 +11,16 @@ import {
   Zap,
   ArrowRight,
   User,
+  Loader2,
 } from "lucide-react";
 
-import { UserButton, useUser } from "@clerk/nextjs";
+import { UserButton } from "@clerk/nextjs";
 
 import Sidebar from "@/app/components/dashboard/Sidebar";
 import DashboardCard from "@/app/components/dashboard/DashboardCard";
 import RecentActivity from "@/app/components/dashboard/RecentActivity";
+
+type Plan = "free" | "pro" | "business";
 
 export default function DashboardPage() {
   const [mobileOpen, setMobileOpen] = useState(false);
@@ -25,58 +28,154 @@ export default function DashboardPage() {
   const [wordsUsed, setWordsUsed] = useState(0);
   const [documents, setDocuments] = useState(0);
 
-  const { user, isLoaded } = useUser();
+  const [plan, setPlan] = useState<Plan>("free");
 
-  // Get plan from Clerk public metadata
-  const plan =
-    (user?.publicMetadata?.plan as string | undefined)?.toLowerCase() ||
-    "free";
+  const [monthlyLimit, setMonthlyLimit] =
+    useState<number | null>(1000);
 
-  // Plan limits
-  const planLimits: Record<string, number | null> = {
-    free: 1000,
-    pro: 50000,
-    business: null,
-  };
+  const [remainingWords, setRemainingWords] =
+    useState<number | null>(1000);
 
-  const currentLimit = planLimits[plan] ?? 1000;
+  const [loading, setLoading] = useState(true);
+
+  // --------------------------------
+  // LOAD REAL PLAN + USAGE
+  // --------------------------------
+
+  async function loadUsage() {
+    try {
+      setLoading(true);
+
+      const response = await fetch(
+        "/api/usage",
+        {
+          method: "GET",
+          cache: "no-store",
+        }
+      );
+
+      const data = await response.json();
+
+      console.log(
+        "DASHBOARD USAGE:",
+        data
+      );
+
+      if (!response.ok) {
+        console.error(
+          "Usage API error:",
+          data
+        );
+
+        return;
+      }
+
+      const detectedPlan =
+        data.plan === "business"
+          ? "business"
+          : data.plan === "pro"
+          ? "pro"
+          : "free";
+
+      setPlan(detectedPlan);
+
+      setMonthlyLimit(
+        data.monthlyLimit ?? null
+      );
+
+      setWordsUsed(
+        typeof data.wordsUsed === "number"
+          ? data.wordsUsed
+          : 0
+      );
+
+      setRemainingWords(
+        data.remainingWords ?? null
+      );
+    } catch (error) {
+      console.error(
+        "Failed to load dashboard usage:",
+        error
+      );
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    loadUsage();
+  }, []);
+
+  // --------------------------------
+  // LOAD DOCUMENT COUNT
+  // --------------------------------
+
+  useEffect(() => {
+    try {
+      const docs = Number(
+        localStorage.getItem(
+          "wordvia_documents"
+        ) || "0"
+      );
+
+      setDocuments(docs);
+    } catch (error) {
+      console.error(
+        "Document count error:",
+        error
+      );
+    }
+  }, []);
+
+  // --------------------------------
+  // PLAN NAME
+  // --------------------------------
 
   const planName =
     plan === "business"
       ? "Business"
       : plan === "pro"
-        ? "Pro"
-        : "Free";
+      ? "Pro"
+      : "Free";
 
-  useEffect(() => {
-    const words = Number(
-      localStorage.getItem("wordvia_words_used") || "0"
-    );
+  // --------------------------------
+  // REMAINING TEXT
+  // --------------------------------
 
-    const docs = Number(
-      localStorage.getItem("wordvia_documents") || "0"
-    );
+  const remainingText =
+    monthlyLimit === null
+      ? "Unlimited words remaining"
+      : `${(
+          remainingWords ?? 0
+        ).toLocaleString()} words remaining`;
 
-    setWordsUsed(words);
-    setDocuments(docs);
-  }, []);
+  // --------------------------------
+  // MONTHLY LIMIT TEXT
+  // --------------------------------
 
-  const remainingWords =
-    currentLimit === null
-      ? "Unlimited"
-      : Math.max(0, currentLimit - wordsUsed).toLocaleString();
+  const planDescription =
+    monthlyLimit === null
+      ? "Unlimited words available."
+      : `${monthlyLimit.toLocaleString()} words available every month.`;
 
   return (
     <div className="min-h-screen bg-[#fafafa]">
+
       {/* SIDEBAR */}
+
       <Sidebar
         mobileOpen={mobileOpen}
-        onClose={() => setMobileOpen(false)}
+        onClose={() =>
+          setMobileOpen(false)
+        }
       />
 
       {/* MAIN */}
+
       <main className="min-h-screen lg:ml-72">
+
         {/* TOPBAR */}
+
         <header
           className="
             sticky
@@ -94,10 +193,16 @@ export default function DashboardPage() {
             sm:px-8
           "
         >
+
+          {/* LEFT */}
+
           <div className="flex items-center gap-4">
+
             <button
               type="button"
-              onClick={() => setMobileOpen(true)}
+              onClick={() =>
+                setMobileOpen(true)
+              }
               className="
                 rounded-xl
                 border
@@ -112,6 +217,7 @@ export default function DashboardPage() {
             </button>
 
             <div>
+
               <p className="text-xs text-gray-400">
                 Workspace
               </p>
@@ -119,10 +225,15 @@ export default function DashboardPage() {
               <h1 className="text-lg font-semibold text-gray-900">
                 Dashboard
               </h1>
+
             </div>
+
           </div>
 
+          {/* RIGHT */}
+
           <div className="flex items-center gap-3">
+
             <div
               className="
                 hidden
@@ -138,14 +249,18 @@ export default function DashboardPage() {
               "
             >
               <User size={16} />
+
               Account
             </div>
 
             <UserButton />
+
           </div>
+
         </header>
 
         {/* CONTENT */}
+
         <div
           className="
             mx-auto
@@ -156,8 +271,11 @@ export default function DashboardPage() {
             lg:px-10
           "
         >
+
           {/* WELCOME */}
+
           <section>
+
             <div
               className="
                 flex
@@ -168,7 +286,9 @@ export default function DashboardPage() {
                 md:items-center
               "
             >
+
               <div>
+
                 <div
                   className="
                     mb-3
@@ -185,6 +305,7 @@ export default function DashboardPage() {
                   "
                 >
                   <Sparkles size={14} />
+
                   AI Writing Workspace
                 </div>
 
@@ -210,9 +331,11 @@ export default function DashboardPage() {
                     sm:text-base
                   "
                 >
-                  Transform your AI-generated content
-                  into natural, authentic writing.
+                  Transform your AI-generated
+                  content into natural,
+                  authentic writing.
                 </p>
+
               </div>
 
               <Link
@@ -236,12 +359,16 @@ export default function DashboardPage() {
                 "
               >
                 <Sparkles size={18} />
+
                 Humanize Text
               </Link>
+
             </div>
+
           </section>
 
           {/* STATS */}
+
           <section
             className="
               mt-8
@@ -251,12 +378,21 @@ export default function DashboardPage() {
               xl:grid-cols-3
             "
           >
+
+            {/* WORDS USED */}
+
             <DashboardCard
               title="Words Used"
-              value={wordsUsed.toLocaleString()}
+              value={
+                loading
+                  ? "..."
+                  : wordsUsed.toLocaleString()
+              }
               description="Words used this month"
               icon={Type}
             />
+
+            {/* DOCUMENTS */}
 
             <DashboardCard
               title="Documents"
@@ -265,20 +401,230 @@ export default function DashboardPage() {
               icon={FileText}
             />
 
+            {/* CURRENT PLAN */}
+
             <DashboardCard
               title="Current Plan"
-              value={isLoaded ? planName : "..."}
+              value={
+                loading
+                  ? "..."
+                  : planName
+              }
               description={
-                isLoaded
-                  ? `${remainingWords} words remaining`
-                  : "Loading plan..."
+                loading
+                  ? "Loading plan..."
+                  : remainingText
               }
               icon={Zap}
             />
+
+          </section>
+
+          {/* PLAN STATUS */}
+
+          <section className="mt-8">
+
+            <div
+              className="
+                rounded-2xl
+                border
+                border-purple-100
+                bg-purple-50
+                p-6
+              "
+            >
+
+              <div
+                className="
+                  flex
+                  flex-col
+                  gap-4
+                  sm:flex-row
+                  sm:items-center
+                  sm:justify-between
+                "
+              >
+
+                <div>
+
+                  <div
+                    className="
+                      flex
+                      items-center
+                      gap-3
+                    "
+                  >
+
+                    <div
+                      className="
+                        flex
+                        h-10
+                        w-10
+                        items-center
+                        justify-center
+                        rounded-xl
+                        bg-white
+                        text-purple-600
+                        shadow-sm
+                      "
+                    >
+                      {loading ? (
+                        <Loader2
+                          size={19}
+                          className="animate-spin"
+                        />
+                      ) : (
+                        <Zap size={19} />
+                      )}
+                    </div>
+
+                    <div>
+
+                      <p className="text-sm font-semibold text-gray-900">
+                        {loading
+                          ? "Loading..."
+                          : `${planName} Plan`}
+                      </p>
+
+                      <p className="mt-1 text-sm text-gray-500">
+                        {loading
+                          ? "Checking your plan..."
+                          : planDescription}
+                      </p>
+
+                    </div>
+
+                  </div>
+
+                </div>
+
+                {plan === "free" && !loading && (
+                  <Link
+                    href="/pricing"
+                    className="
+                      inline-flex
+                      items-center
+                      justify-center
+                      gap-2
+                      rounded-xl
+                      bg-purple-600
+                      px-5
+                      py-3
+                      text-sm
+                      font-semibold
+                      text-white
+                      hover:bg-purple-700
+                    "
+                  >
+                    Upgrade Plan
+
+                    <ArrowRight
+                      size={16}
+                    />
+                  </Link>
+                )}
+
+                {plan === "pro" && !loading && (
+                  <span
+                    className="
+                      rounded-full
+                      bg-white
+                      px-4
+                      py-2
+                      text-sm
+                      font-semibold
+                      text-purple-600
+                      shadow-sm
+                    "
+                  >
+                    Pro Active
+                  </span>
+                )}
+
+                {plan === "business" &&
+                  !loading && (
+                    <span
+                      className="
+                        rounded-full
+                        bg-white
+                        px-4
+                        py-2
+                        text-sm
+                        font-semibold
+                        text-purple-600
+                        shadow-sm
+                      "
+                    >
+                      Business Active
+                    </span>
+                  )}
+
+              </div>
+
+              {/* PROGRESS */}
+
+              {!loading &&
+                monthlyLimit !== null && (
+                  <div className="mt-5">
+
+                    <div
+                      className="
+                        mb-2
+                        flex
+                        justify-between
+                        text-xs
+                        text-gray-500
+                      "
+                    >
+                      <span>
+                        Monthly usage
+                      </span>
+
+                      <span>
+                        {wordsUsed.toLocaleString()} /{" "}
+                        {monthlyLimit.toLocaleString()}
+                      </span>
+                    </div>
+
+                    <div
+                      className="
+                        h-2
+                        overflow-hidden
+                        rounded-full
+                        bg-white
+                      "
+                    >
+
+                      <div
+                        className="
+                          h-full
+                          rounded-full
+                          bg-purple-600
+                          transition-all
+                        "
+                        style={{
+                          width: `${Math.min(
+                            100,
+                            (wordsUsed /
+                              monthlyLimit) *
+                              100
+                          )}%`,
+                        }}
+                      />
+
+                    </div>
+
+                  </div>
+                )}
+
+            </div>
+
           </section>
 
           {/* QUICK START */}
+
           <section className="mt-8">
+
             <div
               className="
                 relative
@@ -294,6 +640,7 @@ export default function DashboardPage() {
                 sm:p-10
               "
             >
+
               <div
                 className="
                   absolute
@@ -319,6 +666,7 @@ export default function DashboardPage() {
               />
 
               <div className="relative z-10 max-w-2xl">
+
                 <div
                   className="
                     mb-4
@@ -348,8 +696,9 @@ export default function DashboardPage() {
                     sm:text-base
                   "
                 >
-                  Paste your AI-generated content and let
-                  Wordvia.ai transform it into natural,
+                  Paste your AI-generated
+                  content and let Wordvia.ai
+                  transform it into natural,
                   readable writing.
                 </p>
 
@@ -371,18 +720,26 @@ export default function DashboardPage() {
                   "
                 >
                   Start Humanizing
+
                   <ArrowRight size={17} />
                 </Link>
+
               </div>
+
             </div>
+
           </section>
 
           {/* RECENT ACTIVITY */}
+
           <section className="mt-8">
+
             <RecentActivity />
+
           </section>
 
           {/* BOTTOM CARDS */}
+
           <section
             className="
               mt-8
@@ -391,7 +748,9 @@ export default function DashboardPage() {
               md:grid-cols-2
             "
           >
+
             {/* HUMANIZER */}
+
             <div
               className="
                 rounded-2xl
@@ -401,7 +760,9 @@ export default function DashboardPage() {
                 p-6
               "
             >
+
               <div className="flex items-center gap-3">
+
                 <div
                   className="
                     flex
@@ -418,6 +779,7 @@ export default function DashboardPage() {
                 </div>
 
                 <div>
+
                   <h3 className="font-semibold text-gray-900">
                     AI Humanizer
                   </h3>
@@ -425,7 +787,9 @@ export default function DashboardPage() {
                   <p className="text-sm text-gray-500">
                     Rewrite your content naturally.
                   </p>
+
                 </div>
+
               </div>
 
               <Link
@@ -442,11 +806,14 @@ export default function DashboardPage() {
                 "
               >
                 Open Humanizer
+
                 <ArrowRight size={15} />
               </Link>
+
             </div>
 
             {/* CURRENT PLAN */}
+
             <div
               className="
                 rounded-2xl
@@ -456,7 +823,9 @@ export default function DashboardPage() {
                 p-6
               "
             >
+
               <div className="flex items-center gap-3">
+
                 <div
                   className="
                     flex
@@ -473,18 +842,21 @@ export default function DashboardPage() {
                 </div>
 
                 <div>
+
                   <h3 className="font-semibold text-gray-900">
-                    {isLoaded ? `${planName} Plan` : "Loading..."}
+                    {loading
+                      ? "Loading..."
+                      : `${planName} Plan`}
                   </h3>
 
                   <p className="text-sm text-gray-500">
-                    {isLoaded
-                      ? currentLimit === null
-                        ? "Unlimited words available."
-                        : `${currentLimit.toLocaleString()} words available every month.`
-                      : "Checking your plan..."}
+                    {loading
+                      ? "Checking your plan..."
+                      : planDescription}
                   </p>
+
                 </div>
+
               </div>
 
               <Link
@@ -501,12 +873,16 @@ export default function DashboardPage() {
                 "
               >
                 View plans
+
                 <ArrowRight size={15} />
               </Link>
+
             </div>
+
           </section>
 
           {/* FOOTER */}
+
           <footer
             className="
               py-10
@@ -517,8 +893,11 @@ export default function DashboardPage() {
           >
             © 2026 Wordvia.ai. All rights reserved.
           </footer>
+
         </div>
+
       </main>
+
     </div>
   );
 }
