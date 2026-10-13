@@ -1,10 +1,7 @@
 import { NextResponse } from "next/server";
 import { auth, clerkClient } from "@clerk/nextjs/server";
 
-const PLAN_LIMITS: Record<
-  string,
-  number | null
-> = {
+const PLAN_LIMITS: Record<string, number | null> = {
   free: 1000,
   pro: 50000,
   business: null,
@@ -12,11 +9,16 @@ const PLAN_LIMITS: Record<
 
 export async function GET() {
   try {
+    // --------------------------------
+    // 1. Check logged-in user
+    // --------------------------------
+
     const { userId } = await auth();
 
     if (!userId) {
       return NextResponse.json(
         {
+          success: false,
           error: "Unauthorized",
         },
         {
@@ -25,46 +27,79 @@ export async function GET() {
       );
     }
 
+    // --------------------------------
+    // 2. Get Clerk user
+    // --------------------------------
+
     const client = await clerkClient();
 
-    const user =
-      await client.users.getUser(userId);
+    const user = await client.users.getUser(userId);
+
+    // --------------------------------
+    // 3. Get user's plan
+    // --------------------------------
+
+    const rawPlan =
+      typeof user.publicMetadata?.plan === "string"
+        ? user.publicMetadata.plan.toLowerCase()
+        : "free";
 
     const plan =
-      (
-        user.publicMetadata?.plan as
-          | string
-          | undefined
-      )?.toLowerCase() || "free";
+      rawPlan === "business"
+        ? "business"
+        : rawPlan === "pro"
+          ? "pro"
+          : "free";
 
-    const monthlyLimit =
-      PLAN_LIMITS[plan] ??
-      PLAN_LIMITS.free;
+    // --------------------------------
+    // 4. Get plan limit
+    // --------------------------------
 
-    const currentMonth =
-      new Date()
-        .toISOString()
-        .slice(0, 7);
+    const monthlyLimit = PLAN_LIMITS[plan];
 
-    const privateMetadata =
-      user.privateMetadata || {};
+    // --------------------------------
+    // 5. Current month
+    // --------------------------------
+
+    const currentMonth = new Date()
+      .toISOString()
+      .slice(0, 7);
+
+    // --------------------------------
+    // 6. Get private metadata
+    // --------------------------------
+
+    const privateMetadata = user.privateMetadata || {};
 
     const storedMonth =
-      typeof privateMetadata.wordUsageMonth ===
-      "string"
+      typeof privateMetadata.wordUsageMonth === "string"
         ? privateMetadata.wordUsageMonth
         : "";
 
     let wordsUsed =
-      typeof privateMetadata.wordsUsed ===
-      "number"
+      typeof privateMetadata.wordsUsed === "number"
         ? privateMetadata.wordsUsed
         : 0;
 
-    // New month = reset usage
+    // --------------------------------
+    // 7. Reset usage for new month
+    // --------------------------------
+
     if (storedMonth !== currentMonth) {
       wordsUsed = 0;
+
+      await client.users.updateUserMetadata(userId, {
+        privateMetadata: {
+          ...privateMetadata,
+          wordsUsed: 0,
+          wordUsageMonth: currentMonth,
+        },
+      });
     }
+
+    // --------------------------------
+    // 8. Calculate remaining words
+    // --------------------------------
 
     const remainingWords =
       monthlyLimit === null
@@ -74,17 +109,16 @@ export async function GET() {
             monthlyLimit - wordsUsed
           );
 
+    // --------------------------------
+    // 9. Return usage
+    // --------------------------------
+
     return NextResponse.json({
       success: true,
-
       plan,
-
       monthlyLimit,
-
       wordsUsed,
-
       remainingWords,
-
       month: currentMonth,
     });
   } catch (error: any) {
@@ -96,7 +130,6 @@ export async function GET() {
     return NextResponse.json(
       {
         success: false,
-
         error:
           error?.message ||
           "Unable to load usage.",
