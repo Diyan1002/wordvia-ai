@@ -16,44 +16,26 @@ import {
 } from "lucide-react";
 
 import Navbar from "@/components/Navbar";
-
-const MAX_REQUEST_WORDS = 5000;
+import { useUser } from "@clerk/nextjs";
 
 type Plan = "free" | "pro" | "business";
 
 export default function HumanizerClient() {
-  // --------------------------------
-  // TEXT / RESULT
-  // --------------------------------
+  const { user, isLoaded } = useUser();
 
   const [text, setText] = useState("");
   const [result, setResult] = useState("");
 
-  // --------------------------------
-  // UI STATES
-  // --------------------------------
-
   const [loading, setLoading] = useState(false);
   const [copied, setCopied] = useState(false);
-
-  // --------------------------------
-  // OPTIONS
-  // --------------------------------
 
   const [tone, setTone] = useState("Professional");
   const [level, setLevel] = useState("Medium");
   const [language, setLanguage] = useState("English");
 
-  // --------------------------------
-  // PLAN / USAGE
-  // --------------------------------
-
-  const [plan, setPlan] = useState<Plan>("free");
-
+  const [wordsUsed, setWordsUsed] = useState(0);
   const [monthlyLimit, setMonthlyLimit] =
     useState<number | null>(1000);
-
-  const [wordsUsed, setWordsUsed] = useState(0);
 
   const [remainingWords, setRemainingWords] =
     useState<number | null>(1000);
@@ -62,7 +44,36 @@ export default function HumanizerClient() {
     useState(true);
 
   // --------------------------------
-  // LOAD REAL USAGE FROM SERVER
+  // GET PLAN FROM CLERK
+  // --------------------------------
+
+  const rawPlan =
+    (
+      user?.publicMetadata?.plan as
+        | string
+        | undefined
+    )?.toLowerCase() || "free";
+
+  const plan: Plan =
+    rawPlan === "business"
+      ? "business"
+      : rawPlan === "pro"
+      ? "pro"
+      : "free";
+
+  // --------------------------------
+  // PLAN NAME
+  // --------------------------------
+
+  const planName =
+    plan === "business"
+      ? "Business"
+      : plan === "pro"
+      ? "Pro"
+      : "Free";
+
+  // --------------------------------
+  // LOAD REAL USAGE
   // --------------------------------
 
   async function loadUsage() {
@@ -79,7 +90,10 @@ export default function HumanizerClient() {
 
       const data = await response.json();
 
-      console.log("USAGE RESPONSE:", data);
+      console.log(
+        "HUMANIZER USAGE:",
+        data
+      );
 
       if (!response.ok) {
         console.error(
@@ -90,22 +104,14 @@ export default function HumanizerClient() {
         return;
       }
 
-      setPlan(
-        data.plan === "business"
-          ? "business"
-          : data.plan === "pro"
-          ? "pro"
-          : "free"
-      );
-
-      setMonthlyLimit(
-        data.monthlyLimit ?? null
-      );
-
       setWordsUsed(
         typeof data.wordsUsed === "number"
           ? data.wordsUsed
           : 0
+      );
+
+      setMonthlyLimit(
+        data.monthlyLimit ?? null
       );
 
       setRemainingWords(
@@ -121,9 +127,15 @@ export default function HumanizerClient() {
     }
   }
 
+  // --------------------------------
+  // LOAD USAGE AFTER CLERK LOADS
+  // --------------------------------
+
   useEffect(() => {
-    loadUsage();
-  }, []);
+    if (isLoaded) {
+      loadUsage();
+    }
+  }, [isLoaded]);
 
   // --------------------------------
   // INPUT WORD COUNT
@@ -134,26 +146,13 @@ export default function HumanizerClient() {
     : 0;
 
   // --------------------------------
-  // PLAN DISPLAY
+  // CHECK WHETHER LIMIT IS EXCEEDED
   // --------------------------------
 
-  const planName =
-    plan === "business"
-      ? "Business"
-      : plan === "pro"
-      ? "Pro"
-      : "Free";
-
-  // --------------------------------
-  // CHECK WHETHER USER EXCEEDED LIMIT
-  // --------------------------------
-
-  const exceedsMonthlyLimit =
-    remainingWords !== null &&
-    inputWordCount > remainingWords;
-
-  const exceedsRequestLimit =
-    inputWordCount > MAX_REQUEST_WORDS;
+  const limitExceeded =
+    monthlyLimit !== null &&
+    inputWordCount >
+      (remainingWords ?? 0);
 
   // --------------------------------
   // HUMANIZE
@@ -170,17 +169,16 @@ export default function HumanizerClient() {
       return;
     }
 
-    // Per-request limit
-    if (inputWordCount > MAX_REQUEST_WORDS) {
+    if (usageLoading) {
       setResult(
-        `Maximum ${MAX_REQUEST_WORDS.toLocaleString()} words are allowed per request.`
+        "Please wait while your plan is loading."
       );
 
       return;
     }
 
-    // Monthly plan limit
-    if (exceedsMonthlyLimit) {
+    // Business = unlimited
+    if (limitExceeded) {
       setResult(
         `You have ${
           remainingWords?.toLocaleString() || "0"
@@ -211,32 +209,26 @@ export default function HumanizerClient() {
         }
       );
 
-      const data = await response.json();
+      const data =
+        await response.json();
 
       console.log(
-        "HUMANIZE API RESPONSE:",
+        "API RESPONSE:",
         data
       );
 
-      // --------------------------------
-      // API ERROR
-      // --------------------------------
-
-      if (!response.ok) {
+      if (!response.ok || data.error) {
         setResult(
           data.error ||
             "Unable to generate result."
         );
 
-        // Refresh actual server usage
+        // Refresh usage in case API
+        // rejected because of limit
         await loadUsage();
 
         return;
       }
-
-      // --------------------------------
-      // EMPTY RESULT
-      // --------------------------------
 
       if (!data.result) {
         setResult(
@@ -253,7 +245,7 @@ export default function HumanizerClient() {
       setResult(data.result);
 
       // --------------------------------
-      // UPDATE REAL USAGE
+      // USE SERVER USAGE
       // --------------------------------
 
       if (
@@ -265,34 +257,37 @@ export default function HumanizerClient() {
         );
       }
 
-      setRemainingWords(
-        data.remainingWords ?? null
-      );
-
-      if (data.plan) {
-        setPlan(
-          data.plan === "business"
-            ? "business"
-            : data.plan === "pro"
-            ? "pro"
-            : "free"
+      if (
+        typeof data.monthlyLimit ===
+        "number" ||
+        data.monthlyLimit === null
+      ) {
+        setMonthlyLimit(
+          data.monthlyLimit
         );
       }
 
-      setMonthlyLimit(
-        data.monthlyLimit ?? null
-      );
+      if (
+        typeof data.remainingWords ===
+        "number" ||
+        data.remainingWords === null
+      ) {
+        setRemainingWords(
+          data.remainingWords
+        );
+      }
 
       // --------------------------------
-      // SAVE DOCUMENT HISTORY
+      // SAVE DOCUMENT
       // --------------------------------
 
       try {
-        const oldHistory = JSON.parse(
-          localStorage.getItem(
-            "wordvia_history"
-          ) || "[]"
-        );
+        const oldHistory =
+          JSON.parse(
+            localStorage.getItem(
+              "wordvia_history"
+            ) || "[]"
+          );
 
         const newDocument = {
           id: Date.now().toString(),
@@ -358,7 +353,7 @@ export default function HumanizerClient() {
   }
 
   // --------------------------------
-  // COPY RESULT
+  // COPY
   // --------------------------------
 
   async function copyResult() {
@@ -394,27 +389,28 @@ export default function HumanizerClient() {
   }
 
   // --------------------------------
-  // USAGE PERCENTAGE
+  // USAGE DISPLAY
   // --------------------------------
 
-  const usagePercentage =
+  const usageText =
     monthlyLimit === null
-      ? 0
-      : Math.min(
-          100,
-          (wordsUsed / monthlyLimit) *
-            100
-        );
+      ? "Unlimited words"
+      : `${wordsUsed.toLocaleString()} / ${monthlyLimit.toLocaleString()} words used`;
 
-  // --------------------------------
-  // RENDER
-  // --------------------------------
+  const remainingText =
+    monthlyLimit === null
+      ? "Unlimited words remaining"
+      : `${(
+          remainingWords ?? 0
+        ).toLocaleString()} words left`;
 
   return (
     <div className="min-h-screen bg-[#fafafa]">
+
       <Navbar />
 
       {/* HERO */}
+
       <section
         className="
           px-6
@@ -501,7 +497,6 @@ export default function HumanizerClient() {
             <ShieldCheck
               className="text-purple-600"
             />
-
             Meaning Preserved
           </div>
 
@@ -509,13 +504,13 @@ export default function HumanizerClient() {
             <Zap
               className="text-purple-600"
             />
-
             Instant Result
           </div>
         </div>
       </section>
 
       {/* TOOL */}
+
       <section
         className="
           mx-auto
@@ -532,7 +527,9 @@ export default function HumanizerClient() {
             shadow-sm
           "
         >
-          {/* USAGE BAR */}
+
+          {/* USAGE */}
+
           <div
             className="
               mb-8
@@ -543,95 +540,113 @@ export default function HumanizerClient() {
               p-5
             "
           >
-            {usageLoading ? (
-              <div className="flex items-center gap-3 text-sm text-purple-700">
-                <Loader2
-                  size={17}
-                  className="animate-spin"
-                />
+            <div
+              className="
+                flex
+                flex-col
+                justify-between
+                gap-3
+                sm:flex-row
+                sm:items-center
+              "
+            >
+              <div>
 
-                Loading your plan...
-              </div>
-            ) : (
-              <>
-                <div
+                <p
                   className="
-                    flex
-                    flex-col
-                    justify-between
-                    gap-3
-                    sm:flex-row
-                    sm:items-center
+                    text-sm
+                    font-semibold
+                    text-purple-900
                   "
                 >
-                  <div>
-                    <p
-                      className="
-                        text-sm
-                        font-semibold
-                        text-purple-900
-                      "
-                    >
-                      {planName} Plan Usage
-                    </p>
+                  {usageLoading
+                    ? "Loading Plan..."
+                    : `${planName} Plan Usage`}
+                </p>
 
-                    <p
-                      className="
-                        mt-1
-                        text-sm
-                        text-purple-600
-                      "
-                    >
-                      {monthlyLimit === null
-                        ? `${wordsUsed.toLocaleString()} words used`
-                        : `${wordsUsed.toLocaleString()} / ${monthlyLimit.toLocaleString()} words used`}
-                    </p>
-                  </div>
+                <p
+                  className="
+                    mt-1
+                    text-sm
+                    text-purple-600
+                  "
+                >
+                  {usageLoading
+                    ? "Checking your usage..."
+                    : usageText}
+                </p>
 
+              </div>
+
+              <div
+                className="
+                  text-sm
+                  font-semibold
+                  text-purple-700
+                "
+              >
+                {usageLoading
+                  ? "..."
+                  : remainingText}
+              </div>
+            </div>
+
+            {/* PROGRESS */}
+
+            {!usageLoading &&
+              monthlyLimit !== null && (
+                <div
+                  className="
+                    mt-4
+                    h-2
+                    overflow-hidden
+                    rounded-full
+                    bg-purple-100
+                  "
+                >
                   <div
                     className="
-                      text-sm
-                      font-semibold
-                      text-purple-700
-                    "
-                  >
-                    {monthlyLimit === null
-                      ? "Unlimited"
-                      : `${(
-                          remainingWords ?? 0
-                        ).toLocaleString()} words left`}
-                  </div>
-                </div>
-
-                {/* PROGRESS BAR */}
-                {monthlyLimit !== null && (
-                  <div
-                    className="
-                      mt-4
-                      h-2
-                      overflow-hidden
+                      h-full
                       rounded-full
-                      bg-purple-100
+                      bg-purple-600
+                      transition-all
                     "
-                  >
-                    <div
-                      className="
-                        h-full
-                        rounded-full
-                        bg-purple-600
-                        transition-all
-                      "
-                      style={{
-                        width: `${usagePercentage}%`,
-                      }}
-                    />
-                  </div>
-                )}
-              </>
-            )}
+                    style={{
+                      width: `${Math.min(
+                        100,
+                        (wordsUsed /
+                          monthlyLimit) *
+                          100
+                      )}%`,
+                    }}
+                  />
+                </div>
+              )}
+
+            {/* BUSINESS MESSAGE */}
+
+            {!usageLoading &&
+              monthlyLimit === null && (
+                <div
+                  className="
+                    mt-4
+                    flex
+                    items-center
+                    gap-2
+                    text-xs
+                    font-medium
+                    text-purple-700
+                  "
+                >
+                  <Sparkles size={14} />
+
+                  Unlimited Business access
+                </div>
+              )}
           </div>
 
           {/* EDITORS */}
+
           <div
             className="
               grid
@@ -639,8 +654,11 @@ export default function HumanizerClient() {
               md:grid-cols-2
             "
           >
+
             {/* INPUT */}
+
             <div>
+
               <div
                 className="
                   mb-3
@@ -665,7 +683,9 @@ export default function HumanizerClient() {
               <textarea
                 value={text}
                 onChange={(e) =>
-                  setText(e.target.value)
+                  setText(
+                    e.target.value
+                  )
                 }
                 placeholder="Paste AI generated text here..."
                 className="
@@ -698,10 +718,13 @@ export default function HumanizerClient() {
               >
                 Clear
               </button>
+
             </div>
 
             {/* RESULT */}
+
             <div>
+
               <div
                 className="
                   mb-3
@@ -774,10 +797,12 @@ export default function HumanizerClient() {
                   </span>
                 )}
               </div>
+
             </div>
           </div>
 
           {/* OPTIONS */}
+
           <div
             className="
               mt-8
@@ -789,7 +814,9 @@ export default function HumanizerClient() {
             <select
               value={tone}
               onChange={(e) =>
-                setTone(e.target.value)
+                setTone(
+                  e.target.value
+                )
               }
               className="
                 rounded-xl
@@ -816,7 +843,9 @@ export default function HumanizerClient() {
             <select
               value={level}
               onChange={(e) =>
-                setLevel(e.target.value)
+                setLevel(
+                  e.target.value
+                )
               }
               className="
                 rounded-xl
@@ -874,8 +903,9 @@ export default function HumanizerClient() {
             </select>
           </div>
 
-          {/* REQUEST LIMIT WARNING */}
-          {exceedsRequestLimit && (
+          {/* WARNING */}
+
+          {limitExceeded && (
             <div
               className="
                 mt-5
@@ -893,7 +923,10 @@ export default function HumanizerClient() {
             >
               <AlertCircle
                 size={18}
-                className="mt-0.5 shrink-0"
+                className="
+                  mt-0.5
+                  shrink-0
+                "
               />
 
               <p>
@@ -901,59 +934,23 @@ export default function HumanizerClient() {
                 <strong>
                   {inputWordCount.toLocaleString()}
                 </strong>{" "}
-                words. Maximum{" "}
+                words, but you only have{" "}
                 <strong>
-                  {MAX_REQUEST_WORDS.toLocaleString()}
+                  {(
+                    remainingWords ?? 0
+                  ).toLocaleString()}
                 </strong>{" "}
-                words are allowed per request.
+                words remaining on your{" "}
+                <strong>
+                  {planName}
+                </strong>{" "}
+                plan.
               </p>
             </div>
           )}
 
-          {/* MONTHLY LIMIT WARNING */}
-          {!exceedsRequestLimit &&
-            exceedsMonthlyLimit && (
-              <div
-                className="
-                  mt-5
-                  flex
-                  items-start
-                  gap-3
-                  rounded-xl
-                  border
-                  border-red-200
-                  bg-red-50
-                  p-4
-                  text-sm
-                  text-red-700
-                "
-              >
-                <AlertCircle
-                  size={18}
-                  className="mt-0.5 shrink-0"
-                />
-
-                <p>
-                  Your text has{" "}
-                  <strong>
-                    {inputWordCount.toLocaleString()}
-                  </strong>{" "}
-                  words, but you only have{" "}
-                  <strong>
-                    {(
-                      remainingWords ?? 0
-                    ).toLocaleString()}
-                  </strong>{" "}
-                  words remaining on your{" "}
-                  <strong>
-                    {planName}
-                  </strong>{" "}
-                  plan.
-                </p>
-              </div>
-            )}
-
           {/* BUTTON */}
+
           <button
             type="button"
             onClick={humanize}
@@ -961,8 +958,7 @@ export default function HumanizerClient() {
               loading ||
               usageLoading ||
               inputWordCount === 0 ||
-              exceedsRequestLimit ||
-              exceedsMonthlyLimit
+              limitExceeded
             }
             className="
               mt-8
@@ -998,10 +994,12 @@ export default function HumanizerClient() {
               </>
             )}
           </button>
+
         </div>
       </section>
 
       {/* FEATURES */}
+
       <section
         className="
           mx-auto
@@ -1047,6 +1045,7 @@ export default function HumanizerClient() {
           />
         </div>
       </section>
+
     </div>
   );
 }
