@@ -21,7 +21,7 @@ import { useUser } from "@clerk/nextjs";
 type Plan = "free" | "pro" | "business";
 
 export default function HumanizerClient() {
-  const { user, isLoaded } = useUser();
+  const { isLoaded } = useUser();
 
   const [text, setText] = useState("");
   const [result, setResult] = useState("");
@@ -33,33 +33,15 @@ export default function HumanizerClient() {
   const [level, setLevel] = useState("Medium");
   const [language, setLanguage] = useState("English");
 
-  const [wordsUsed, setWordsUsed] = useState(0);
+  const [plan, setPlan] = useState<Plan>("free");
   const [monthlyLimit, setMonthlyLimit] =
     useState<number | null>(1000);
 
+  const [wordsUsed, setWordsUsed] = useState(0);
   const [remainingWords, setRemainingWords] =
     useState<number | null>(1000);
 
-  const [usageLoading, setUsageLoading] =
-    useState(true);
-
-  // --------------------------------
-  // GET PLAN FROM CLERK
-  // --------------------------------
-
-  const rawPlan =
-    (
-      user?.publicMetadata?.plan as
-        | string
-        | undefined
-    )?.toLowerCase() || "free";
-
-  const plan: Plan =
-    rawPlan === "business"
-      ? "business"
-      : rawPlan === "pro"
-      ? "pro"
-      : "free";
+  const [usageLoading, setUsageLoading] = useState(true);
 
   // --------------------------------
   // PLAN NAME
@@ -73,55 +55,67 @@ export default function HumanizerClient() {
       : "Free";
 
   // --------------------------------
-  // LOAD REAL USAGE
+  // LOAD SERVER USAGE
   // --------------------------------
 
   async function loadUsage() {
     try {
       setUsageLoading(true);
 
-      const response = await fetch(
-        "/api/usage",
-        {
-          method: "GET",
-          cache: "no-store",
-        }
-      );
+      const response = await fetch("/api/usage", {
+        method: "GET",
+        cache: "no-store",
+      });
 
       const data = await response.json();
 
-      console.log(
-        "HUMANIZER USAGE:",
-        data
-      );
+      console.log("HUMANIZER USAGE:", data);
 
       if (!response.ok) {
-        console.error(
-          "Usage API error:",
-          data
-        );
-
+        console.error("Usage API error:", data);
         return;
       }
 
+      // Plan
+      const serverPlan =
+        typeof data.plan === "string"
+          ? data.plan.toLowerCase()
+          : "free";
+
+      if (serverPlan === "business") {
+        setPlan("business");
+      } else if (serverPlan === "pro") {
+        setPlan("pro");
+      } else {
+        setPlan("free");
+      }
+
+      // Usage
       setWordsUsed(
         typeof data.wordsUsed === "number"
           ? data.wordsUsed
           : 0
       );
 
+      // Monthly limit
       setMonthlyLimit(
-        data.monthlyLimit ?? null
+        data.monthlyLimit === null
+          ? null
+          : typeof data.monthlyLimit === "number"
+          ? data.monthlyLimit
+          : 1000
       );
 
+      // Remaining
       setRemainingWords(
-        data.remainingWords ?? null
+        data.remainingWords === null
+          ? null
+          : typeof data.remainingWords === "number"
+          ? data.remainingWords
+          : 1000
       );
     } catch (error) {
-      console.error(
-        "Failed to load usage:",
-        error
-      );
+      console.error("Failed to load usage:", error);
     } finally {
       setUsageLoading(false);
     }
@@ -146,13 +140,12 @@ export default function HumanizerClient() {
     : 0;
 
   // --------------------------------
-  // CHECK WHETHER LIMIT IS EXCEEDED
+  // LIMIT CHECK
   // --------------------------------
 
   const limitExceeded =
     monthlyLimit !== null &&
-    inputWordCount >
-      (remainingWords ?? 0);
+    inputWordCount > (remainingWords ?? 0);
 
   // --------------------------------
   // HUMANIZE
@@ -162,22 +155,18 @@ export default function HumanizerClient() {
     setResult("");
 
     if (!text.trim()) {
-      setResult(
-        "Please enter some text first."
-      );
-
+      setResult("Please enter some text first.");
       return;
     }
 
     if (usageLoading) {
-      setResult(
-        "Please wait while your plan is loading."
-      );
-
+      setResult("Please wait while your plan is loading.");
       return;
     }
 
-    // Business = unlimited
+    // Business is unlimited.
+    // Pro has 50,000 monthly limit.
+    // Free has 1,000 monthly limit.
     if (limitExceeded) {
       setResult(
         `You have ${
@@ -191,50 +180,38 @@ export default function HumanizerClient() {
     try {
       setLoading(true);
 
-      const response = await fetch(
-        "/api/humanize",
-        {
-          method: "POST",
+      const response = await fetch("/api/humanize", {
+        method: "POST",
 
-          headers: {
-            "Content-Type": "application/json",
-          },
+        headers: {
+          "Content-Type": "application/json",
+        },
 
-          body: JSON.stringify({
-            text,
-            tone,
-            level,
-            language,
-          }),
-        }
-      );
+        body: JSON.stringify({
+          text,
+          tone,
+          level,
+          language,
+        }),
+      });
 
-      const data =
-        await response.json();
+      const data = await response.json();
 
-      console.log(
-        "API RESPONSE:",
-        data
-      );
+      console.log("API RESPONSE:", data);
 
       if (!response.ok || data.error) {
         setResult(
-          data.error ||
-            "Unable to generate result."
+          data.error || "Unable to generate result."
         );
 
-        // Refresh usage in case API
-        // rejected because of limit
+        // Server may have updated usage
         await loadUsage();
 
         return;
       }
 
       if (!data.result) {
-        setResult(
-          "No result was generated."
-        );
-
+        setResult("No result was generated.");
         return;
       }
 
@@ -245,31 +222,37 @@ export default function HumanizerClient() {
       setResult(data.result);
 
       // --------------------------------
-      // USE SERVER USAGE
+      // UPDATE SERVER USAGE
       // --------------------------------
 
-      if (
-        typeof data.wordsUsed ===
-        "number"
-      ) {
-        setWordsUsed(
-          data.wordsUsed
-        );
+      if (typeof data.plan === "string") {
+        const returnedPlan =
+          data.plan.toLowerCase();
+
+        if (returnedPlan === "business") {
+          setPlan("business");
+        } else if (returnedPlan === "pro") {
+          setPlan("pro");
+        } else {
+          setPlan("free");
+        }
       }
 
       if (
-        typeof data.monthlyLimit ===
-        "number" ||
+        typeof data.wordsUsed === "number"
+      ) {
+        setWordsUsed(data.wordsUsed);
+      }
+
+      if (
+        typeof data.monthlyLimit === "number" ||
         data.monthlyLimit === null
       ) {
-        setMonthlyLimit(
-          data.monthlyLimit
-        );
+        setMonthlyLimit(data.monthlyLimit);
       }
 
       if (
-        typeof data.remainingWords ===
-        "number" ||
+        typeof data.remainingWords === "number" ||
         data.remainingWords === null
       ) {
         setRemainingWords(
@@ -282,12 +265,11 @@ export default function HumanizerClient() {
       // --------------------------------
 
       try {
-        const oldHistory =
-          JSON.parse(
-            localStorage.getItem(
-              "wordvia_history"
-            ) || "[]"
-          );
+        const oldHistory = JSON.parse(
+          localStorage.getItem(
+            "wordvia_history"
+          ) || "[]"
+        );
 
         const newDocument = {
           id: Date.now().toString(),
@@ -301,13 +283,10 @@ export default function HumanizerClient() {
 
           originalText: text,
 
-          humanizedText:
-            data.result,
+          humanizedText: data.result,
 
           tone,
-
           level,
-
           language,
 
           createdAt:
@@ -321,16 +300,12 @@ export default function HumanizerClient() {
 
         localStorage.setItem(
           "wordvia_history",
-          JSON.stringify(
-            updatedHistory
-          )
+          JSON.stringify(updatedHistory)
         );
 
         localStorage.setItem(
           "wordvia_documents",
-          String(
-            updatedHistory.length
-          )
+          String(updatedHistory.length)
         );
       } catch (historyError) {
         console.error(
@@ -338,6 +313,9 @@ export default function HumanizerClient() {
           historyError
         );
       }
+
+      // Refresh from server
+      await loadUsage();
     } catch (error) {
       console.error(
         "Humanizer error:",
@@ -362,9 +340,7 @@ export default function HumanizerClient() {
     }
 
     try {
-      await navigator.clipboard.writeText(
-        result
-      );
+      await navigator.clipboard.writeText(result);
 
       setCopied(true);
 
@@ -394,7 +370,7 @@ export default function HumanizerClient() {
 
   const usageText =
     monthlyLimit === null
-      ? "Unlimited words"
+      ? `${wordsUsed.toLocaleString()} words used`
       : `${wordsUsed.toLocaleString()} / ${monthlyLimit.toLocaleString()} words used`;
 
   const remainingText =
@@ -404,20 +380,25 @@ export default function HumanizerClient() {
           remainingWords ?? 0
         ).toLocaleString()} words left`;
 
+  // --------------------------------
+  // PROGRESS
+  // --------------------------------
+
+  const progressPercentage =
+    monthlyLimit === null || monthlyLimit === 0
+      ? 0
+      : Math.min(
+          100,
+          (wordsUsed / monthlyLimit) * 100
+        );
+
   return (
     <div className="min-h-screen bg-[#fafafa]">
-
       <Navbar />
 
       {/* HERO */}
 
-      <section
-        className="
-          px-6
-          py-20
-          text-center
-        "
-      >
+      <section className="px-6 py-20 text-center">
         <motion.div
           initial={{
             opacity: 0,
@@ -463,7 +444,6 @@ export default function HumanizerClient() {
           "
         >
           Make AI Text{" "}
-
           <span className="text-purple-600">
             Sound Human
           </span>
@@ -494,16 +474,12 @@ export default function HumanizerClient() {
           "
         >
           <div className="flex items-center gap-2">
-            <ShieldCheck
-              className="text-purple-600"
-            />
+            <ShieldCheck className="text-purple-600" />
             Meaning Preserved
           </div>
 
           <div className="flex items-center gap-2">
-            <Zap
-              className="text-purple-600"
-            />
+            <Zap className="text-purple-600" />
             Instant Result
           </div>
         </div>
@@ -527,7 +503,6 @@ export default function HumanizerClient() {
             shadow-sm
           "
         >
-
           {/* USAGE */}
 
           <div
@@ -551,7 +526,6 @@ export default function HumanizerClient() {
               "
             >
               <div>
-
                 <p
                   className="
                     text-sm
@@ -575,7 +549,6 @@ export default function HumanizerClient() {
                     ? "Checking your usage..."
                     : usageText}
                 </p>
-
               </div>
 
               <div
@@ -612,18 +585,13 @@ export default function HumanizerClient() {
                       transition-all
                     "
                     style={{
-                      width: `${Math.min(
-                        100,
-                        (wordsUsed /
-                          monthlyLimit) *
-                          100
-                      )}%`,
+                      width: `${progressPercentage}%`,
                     }}
                   />
                 </div>
               )}
 
-            {/* BUSINESS MESSAGE */}
+            {/* BUSINESS */}
 
             {!usageLoading &&
               monthlyLimit === null && (
@@ -654,11 +622,9 @@ export default function HumanizerClient() {
               md:grid-cols-2
             "
           >
-
             {/* INPUT */}
 
             <div>
-
               <div
                 className="
                   mb-3
@@ -683,9 +649,7 @@ export default function HumanizerClient() {
               <textarea
                 value={text}
                 onChange={(e) =>
-                  setText(
-                    e.target.value
-                  )
+                  setText(e.target.value)
                 }
                 placeholder="Paste AI generated text here..."
                 className="
@@ -704,9 +668,7 @@ export default function HumanizerClient() {
               <button
                 type="button"
                 onClick={clearText}
-                disabled={
-                  !text && !result
-                }
+                disabled={!text && !result}
                 className="
                   mt-3
                   text-sm
@@ -718,13 +680,11 @@ export default function HumanizerClient() {
               >
                 Clear
               </button>
-
             </div>
 
             {/* RESULT */}
 
             <div>
-
               <div
                 className="
                   mb-3
@@ -782,9 +742,7 @@ export default function HumanizerClient() {
                       text-purple-600
                     "
                   >
-                    <Loader2
-                      className="animate-spin"
-                    />
+                    <Loader2 className="animate-spin" />
 
                     Humanizing...
                   </div>
@@ -797,7 +755,6 @@ export default function HumanizerClient() {
                   </span>
                 )}
               </div>
-
             </div>
           </div>
 
@@ -814,9 +771,7 @@ export default function HumanizerClient() {
             <select
               value={tone}
               onChange={(e) =>
-                setTone(
-                  e.target.value
-                )
+                setTone(e.target.value)
               }
               className="
                 rounded-xl
@@ -827,25 +782,15 @@ export default function HumanizerClient() {
                 focus:ring-purple-500
               "
             >
-              <option>
-                Professional
-              </option>
-
-              <option>
-                Casual
-              </option>
-
-              <option>
-                Creative
-              </option>
+              <option>Professional</option>
+              <option>Casual</option>
+              <option>Creative</option>
             </select>
 
             <select
               value={level}
               onChange={(e) =>
-                setLevel(
-                  e.target.value
-                )
+                setLevel(e.target.value)
               }
               className="
                 rounded-xl
@@ -856,25 +801,15 @@ export default function HumanizerClient() {
                 focus:ring-purple-500
               "
             >
-              <option>
-                Light
-              </option>
-
-              <option>
-                Medium
-              </option>
-
-              <option>
-                Strong
-              </option>
+              <option>Light</option>
+              <option>Medium</option>
+              <option>Strong</option>
             </select>
 
             <select
               value={language}
               onChange={(e) =>
-                setLanguage(
-                  e.target.value
-                )
+                setLanguage(e.target.value)
               }
               className="
                 rounded-xl
@@ -885,21 +820,10 @@ export default function HumanizerClient() {
                 focus:ring-purple-500
               "
             >
-              <option>
-                English
-              </option>
-
-              <option>
-                Spanish
-              </option>
-
-              <option>
-                French
-              </option>
-
-              <option>
-                Urdu
-              </option>
+              <option>English</option>
+              <option>Spanish</option>
+              <option>French</option>
+              <option>Urdu</option>
             </select>
           </div>
 
@@ -936,15 +860,10 @@ export default function HumanizerClient() {
                 </strong>{" "}
                 words, but you only have{" "}
                 <strong>
-                  {(
-                    remainingWords ?? 0
-                  ).toLocaleString()}
+                  {(remainingWords ?? 0).toLocaleString()}
                 </strong>{" "}
                 words remaining on your{" "}
-                <strong>
-                  {planName}
-                </strong>{" "}
-                plan.
+                <strong>{planName}</strong> plan.
               </p>
             </div>
           )}
@@ -980,9 +899,7 @@ export default function HumanizerClient() {
           >
             {loading ? (
               <>
-                <Loader2
-                  className="animate-spin"
-                />
+                <Loader2 className="animate-spin" />
 
                 Processing...
               </>
@@ -994,7 +911,6 @@ export default function HumanizerClient() {
               </>
             )}
           </button>
-
         </div>
       </section>
 
@@ -1045,7 +961,6 @@ export default function HumanizerClient() {
           />
         </div>
       </section>
-
     </div>
   );
 }
